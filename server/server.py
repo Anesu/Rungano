@@ -28,6 +28,7 @@ import subprocess as _subprocess
 import threading
 import time
 import uuid
+import wave
 from pathlib import Path
 from typing import Any
 
@@ -212,6 +213,37 @@ def api_tts():
         logger.exception("TTS failed")
         return jsonify({"error": str(e)}), 500
 
+def _trim_trailing_quiet(wav_bytes: bytes, abs_threshold: int = 100, pad_sec: float = 0.3) -> bytes:
+    """
+    Trim trailing audio where samples stay below `abs_threshold`.
+    Only catches digital noise floor — real speech is hundreds to thousands.
+    Much safer than ratio-based trimming which can clip quiet speech.
+    """
+    import io as _io
+    with wave.open(_io.BytesIO(wav_bytes), "rb") as wf:
+        params = wf.getparams()
+        nframes = params.nframes
+        frames = wf.readframes(nframes)
+    fmt = f"<{nframes}h"
+    samples = list(struct.unpack(fmt, frames))
+    pad_frames = int(params.framerate * pad_sec)
+    # Scan backwards — find the last sample above threshold
+    cutoff = nframes
+    for i in range(nframes - 1, pad_frames, -1):
+        if abs(samples[i]) > abs_threshold:
+            cutoff = min(i + pad_frames, nframes)
+            break
+    if cutoff >= nframes - int(params.framerate * 0.1):
+        return wav_bytes  # nothing to trim
+    trimmed = samples[:cutoff]
+    buf = _io.BytesIO()
+    new_params = params._replace(nframes=len(trimmed))
+    with wave.open(buf, "wb") as wf:
+        wf.setparams(new_params)
+        wf.writeframes(struct.pack(f"<{len(trimmed)}h", *trimmed))
+    return buf.getvalue()
+
+
 # ── TTS (long / chunked) ─────────────────────────────────
 @app.route("/api/tts/long", methods=["POST"])
 def api_tts_long():
@@ -259,6 +291,10 @@ def _api_tts_long_impl():
         try:
             raw = tts.synthesize(text=chunk, references=references, temperature=temperature, top_k=top_k, max_new_tokens=tok)
             boosted = apply_gain(raw, gain=volume)
+            # Gentle trim: only cut near-digital-silence (samples < 100 after 1.8x gain).
+            # This catches the model's low-level trailing noise (~±5-50) but never touches
+            # real speech (~±500 to ±20,000). Pad 0.3s so sentence endings breathe.
+            boosted = _trim_trailing_quiet(boosted, abs_threshold=100, pad_sec=0.3)
             wavs.append(boosted)
         except Exception as e:
             logger.error("Chunk %d failed: %s", i + 1, e)
