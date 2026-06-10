@@ -40,6 +40,7 @@ const els = {
   settingTopP: $('setting-topp'), settingTokens: $('setting-tokens'),
   tempValue: $('temp-value'), topkValue: $('topk-value'), toppValue: $('topp-value'), tokensValue: $('tokens-value'),
   btnSettingsClose: $('btn-settings-close'), btnSettingsReset: $('btn-settings-reset'),
+  settingDefaultVoice: $('setting-default-voice'),
   // Theme
   btnTheme: $('btn-theme'),
   // Help / Export / Playlist
@@ -157,6 +158,9 @@ async function loadVoices() {
     state.voices = voices; els.voiceSelect.innerHTML = '';
     for (const v of voices) { const opt = document.createElement('option'); opt.value = v.id; opt.textContent = `${v.name}${v.kind === 'custom' ? '  •  custom' : ''}`; els.voiceSelect.appendChild(opt); }
     if (voices.length && !voices.find(v => v.id === state.selectedVoice)) state.selectedVoice = voices[0].id;
+    // Apply saved default voice preference
+    const defaultVoice = localStorage.getItem('rungano-default-voice');
+    if (defaultVoice && voices.find(v => v.id === defaultVoice)) state.selectedVoice = defaultVoice;
     els.voiceSelect.value = state.selectedVoice;
     updateVoiceCard();
   } catch (e) { els.voiceSelect.innerHTML = '<option>Server unavailable</option>'; }
@@ -504,6 +508,14 @@ function openSettingsModal() {
   els.settingTopK.value = state.topK;
   els.settingTopP.value = state.topP;
   els.settingTokens.value = state.maxTokens;
+  // Populate default voice dropdown
+  els.settingDefaultVoice.innerHTML = '<option value="">Last used</option>';
+  for (const v of state.voices) {
+    const opt = document.createElement('option');
+    opt.value = v.id; opt.textContent = v.name;
+    if (v.id === (localStorage.getItem('rungano-default-voice') || '')) opt.selected = true;
+    els.settingDefaultVoice.appendChild(opt);
+  }
   updateSettingLabels();
   els.settingsModal.hidden = false; els.settingsModal.style.display = 'flex';
 }
@@ -519,6 +531,9 @@ function saveSettings() {
   state.topK = parseInt(els.settingTopK.value);
   state.topP = parseFloat(els.settingTopP.value);
   state.maxTokens = parseInt(els.settingTokens.value);
+  const defaultVoice = els.settingDefaultVoice.value;
+  if (defaultVoice) localStorage.setItem('rungano-default-voice', defaultVoice);
+  else localStorage.removeItem('rungano-default-voice');
   closeSettingsModal();
   toast('Settings saved.');
 }

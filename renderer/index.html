@@ -203,9 +203,19 @@
             <span>Max Tokens</span>
             <span class="setting-value" id="tokens-value">2048</span>
           </div>
-          <input type="range" id="setting-tokens" min="256" max="4096" step="128" value="2048">
           <span class="setting-hint">Maximum audio length per sentence. 2048 ≈ 40 seconds.</span>
         </div>
+
+        <div class="setting-row">
+          <div class="setting-label">
+            <span>Default Voice</span>
+          </div>
+          <select id="setting-default-voice">
+            <option value="">Last used</option>
+          </select>
+          <span class="setting-hint">Voice selected automatically on startup.</span>
+        </div>
+
         <div class="modal-actions">
           <button class="btn btn-ghost" id="btn-settings-reset">Reset defaults</button>
           <button class="btn btn-primary" id="btn-settings-close">Done</button>
