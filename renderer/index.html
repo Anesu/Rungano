@@ -12,14 +12,17 @@
 
     <!-- ═══ Status Bar ═══════════════════════════════════════════════ -->
     <header class="status-bar">
-      <div class="brand">
-        <span class="brand-mark">RUNGANO</span><span class="brand-sub">TTS</span>
-      </div>
       <div class="status-pill" id="status-pill" title="System status">
         <span class="dot" id="dot-status"></span>
         <span class="status-text" id="text-status">Connecting…</span>
       </div>
-      <button class="icon-btn" id="btn-info" title="Help">ℹ</button>
+      <div class="brand">
+        <span class="brand-mark">RUNGANO</span><span class="brand-sub">TTS</span>
+      </div>
+      <button class="icon-btn" id="btn-settings" title="Model settings">⚙</button>
+      <button class="icon-btn" id="btn-theme" title="Toggle theme">☀</button>
+      <button class="icon-btn" id="btn-restart" title="Restart servers">⟳</button>
+      <button class="icon-btn" id="btn-info" title="Help &amp; Info">ℹ</button>
     </header>
 
     <!-- ═══ Main 2-column ════════════════════════════════════════════ -->
@@ -27,7 +30,10 @@
 
       <!-- LEFT: Text Input -->
       <section class="panel panel-input">
-        <label class="field-label" for="text-input">Text to synthesise</label>
+        <div class="input-label-row">
+          <label class="field-label" for="text-input">Text to synthesise</label>
+          <span class="badge badge-lang input-lang-badge" id="input-lang" hidden></span>
+        </div>
         <textarea id="text-input" placeholder="Type or paste text, or drag a .txt file here." spellcheck="false"></textarea>
         <div class="input-footer">
           <button class="btn btn-primary" id="btn-synth">
@@ -46,13 +52,49 @@
         </div>
       </section>
 
-      <!-- RIGHT: Voice + Effects | Playlist -->
+      <!-- RIGHT: Playlist + Voice & Effects -->
       <section class="panel panel-output">
 
-        <!-- ═══ Configuration section ═══════════════════════════════ -->
-        <div class="output-section">
+        <!-- ═══ Playlist (top) ══════════════════════════════════════ -->
+        <div class="output-section output-section-playlist">
 
-          <!-- Voice Card — compact -->
+          <!-- Recent -->
+          <div class="recent-section" id="recent-section" hidden>
+            <div class="section-head">
+              <span class="field-label">Recent</span>
+              <button class="btn-ghost-sm" id="btn-clear-history">Clear</button>
+            </div>
+            <div class="recent-list" id="recent-list"></div>
+          </div>
+
+          <!-- Actions toolbar -->
+          <div class="actions-bar" id="actions-bar">
+            <button class="btn btn-sm" id="btn-play-all" hidden>▶ Play All</button>
+            <button class="btn btn-sm" id="btn-export-wav" hidden title="Download all sentences as one WAV file">Export WAV</button>
+            <button class="btn btn-sm" id="btn-save-m3u" hidden title="Save playlist file for VLC">Save .m3u</button>
+            <button class="btn btn-sm" id="btn-output" title="Open today's output folder">Open Folder</button>
+          </div>
+
+          <!-- Playlist header -->
+          <div class="playlist-toolbar">
+            <span class="field-label">Playlist</span>
+          </div>
+
+          <!-- Audio -->
+          <div class="audio-wrap" id="audio-wrap">
+            <p class="muted audio-placeholder" id="audio-placeholder">Synthesise text to see audio here.</p>
+            <audio id="audio-player" controls preload="auto" hidden></audio>
+          </div>
+
+          <!-- Sentence list -->
+          <ul class="sentence-list" id="sentence-list"></ul>
+        </div>
+
+        <!-- ═══ Voice & Effects (bottom) ════════════════════════════ -->
+        <div class="output-section">
+          <div class="section-divider"></div>
+
+          <!-- Voice Card -->
           <div class="voice-card" id="voice-card">
             <div class="voice-card-badges" id="voice-card-badges" hidden>
               <span class="badge badge-lang" id="voice-lang"></span>
@@ -79,53 +121,12 @@
 
           <div class="settings-summary" id="settings-summary">No effects selected</div>
         </div>
-
-        <!-- ═══ Playlist section ════════════════════════════════════ -->
-        <div class="output-section output-section-playlist">
-
-          <!-- Recent -->
-          <div class="recent-section" id="recent-section" hidden>
-            <div class="section-head">
-              <span class="field-label">Recent</span>
-              <button class="btn-ghost-sm" id="btn-clear-history">Clear</button>
-            </div>
-            <div class="recent-list" id="recent-list"></div>
-          </div>
-
-          <!-- Actions toolbar -->
-          <div class="actions-bar" id="actions-bar">
-            <button class="btn btn-sm btn-ghost" id="btn-play-all" hidden>▶ Play All</button>
-            <button class="btn btn-sm btn-ghost" id="btn-export-wav" hidden title="Download all as one WAV">⬇ WAV</button>
-            <button class="btn btn-sm btn-ghost" id="btn-save-m3u" hidden title="Save .m3u playlist">📋 .m3u</button>
-            <button class="btn btn-sm btn-ghost" id="btn-output" title="Open output folder">📁</button>
-          </div>
-
-          <!-- Playlist toolbar -->
-          <div class="playlist-toolbar">
-            <span class="field-label">Playlist</span>
-          </div>
-
-          <!-- Audio -->
-          <div class="audio-wrap" id="audio-wrap">
-            <p class="muted audio-placeholder" id="audio-placeholder">Audio player will appear when first sentence completes.</p>
-            <audio id="audio-player" controls preload="auto" hidden></audio>
-          </div>
-
-          <!-- Sentence list -->
-          <ul class="sentence-list" id="sentence-list"></ul>
-        </div>
       </section>
     </main>
 
     <!-- ═══ Help tooltip ═══════════════════════════════════════════ -->
     <div class="tooltip-panel" id="tooltip-panel" hidden>
       <div class="tooltip-content">
-        <div class="tooltip-actions">
-          <button class="btn btn-sm btn-ghost" id="btn-settings" title="Model settings">⚙ Settings</button>
-          <button class="btn btn-sm btn-ghost" id="btn-theme" title="Toggle theme">☀ Theme</button>
-          <button class="btn btn-sm btn-ghost" id="btn-restart" title="Restart servers">⟳ Restart</button>
-        </div>
-        <hr>
         <p><kbd>Ctrl+Enter</kbd> Synthesise</p>
         <p><kbd>Space</kbd> Play / Pause</p>
         <p><kbd>← →</kbd> Previous / Next sentence</p>
@@ -175,48 +176,30 @@
         <h3>Model Settings</h3>
         <p class="muted">These parameters control how the AI generates speech. Defaults work well for most cases.</p>
         <div class="setting-row">
-          <div class="setting-label">
-            <span>Temperature</span>
-            <span class="setting-value" id="temp-value">0.80</span>
-          </div>
+          <div class="setting-label"><span>Temperature</span><span class="setting-value" id="temp-value">0.80</span></div>
           <input type="range" id="setting-temperature" min="0.1" max="1.5" step="0.05" value="0.8">
           <span class="setting-hint">Higher = more creative/varied. Lower = more consistent.</span>
         </div>
         <div class="setting-row">
-          <div class="setting-label">
-            <span>Top-K</span>
-            <span class="setting-value" id="topk-value">50</span>
-          </div>
+          <div class="setting-label"><span>Top-K</span><span class="setting-value" id="topk-value">50</span></div>
           <input type="range" id="setting-topk" min="1" max="100" step="1" value="50">
           <span class="setting-hint">Limits token choices to top K. Lower = more focused.</span>
         </div>
         <div class="setting-row">
-          <div class="setting-label">
-            <span>Top-P</span>
-            <span class="setting-value" id="topp-value">0.90</span>
-          </div>
+          <div class="setting-label"><span>Top-P</span><span class="setting-value" id="topp-value">0.90</span></div>
           <input type="range" id="setting-topp" min="0.1" max="1.0" step="0.05" value="0.9">
           <span class="setting-hint">Nucleus sampling threshold. Lower = more predictable.</span>
         </div>
         <div class="setting-row">
-          <div class="setting-label">
-            <span>Max Tokens</span>
-            <span class="setting-value" id="tokens-value">2048</span>
-          </div>
+          <div class="setting-label"><span>Max Tokens</span><span class="setting-value" id="tokens-value">2048</span></div>
           <input type="range" id="setting-tokens" min="256" max="4096" step="128" value="2048">
           <span class="setting-hint">Maximum audio length per sentence. 2048 ≈ 40 seconds.</span>
         </div>
-
         <div class="setting-row">
-          <div class="setting-label">
-            <span>Default Voice</span>
-          </div>
-          <select id="setting-default-voice">
-            <option value="">Last used</option>
-          </select>
+          <div class="setting-label"><span>Default Voice</span></div>
+          <select id="setting-default-voice"><option value="">Last used</option></select>
           <span class="setting-hint">Voice selected automatically on startup.</span>
         </div>
-
         <div class="modal-actions">
           <button class="btn btn-ghost" id="btn-settings-reset">Reset defaults</button>
           <button class="btn btn-primary" id="btn-settings-close">Done</button>

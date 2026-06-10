@@ -1,0 +1,14 @@
+{
+  "id": "d687d5981775",
+  "text": "Mhuka dzose dzaiva nenzara huru.",
+  "voice_id": "42cf79d2cb",
+  "references": [
+    {
+      "audio_path": "/mnt/c/Users/Anesu/Documents/GitHub/Higgs-TTS/voices/shona/anesu/reference.wav",
+      "text": "Zuva rangu Muponesi Kuno penya apo muri. Ndirambidzei zvakaipa Zvinozondidzikatira."
+    }
+  ],
+  "file": "2026-06-11/001025-d687d5981775.wav",
+  "elapsed_sec": 1.19,
+  "created_at": 1781100625.3136747
+}

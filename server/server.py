@@ -217,7 +217,7 @@ def api_tts():
         out_path.write_bytes(audio_bytes)
         elapsed = time.time() - t0
         get_history().save(entry_id=entry_id, text=text, voice_id=voice_id, references=references, file_path=out_path, elapsed_sec=elapsed)
-        return jsonify({"id": entry_id, "file": f"/audio/history/{entry_id}.wav", "elapsed_sec": round(elapsed, 2), "bytes": len(audio_bytes), "volume_applied": volume})
+        return jsonify({"id": entry_id, "file": f"/audio/{out_path.relative_to(OUTPUT_DIR).as_posix()}", "elapsed_sec": round(elapsed, 2), "bytes": len(audio_bytes), "volume_applied": volume})
     except Exception as e:
         logger.exception("TTS failed")
         return jsonify({"error": str(e)}), 500
@@ -279,7 +279,7 @@ def api_tts_batch():
                 "index": i,
                 "text": sentence[:120] + ("..." if len(sentence) > 120 else ""),
                 "chars": len(sentence),
-                "file": f"/audio/history/{entry_id}.wav",
+                "file": f"/audio/{out_path.relative_to(OUTPUT_DIR).as_posix()}",
                 "elapsed_sec": round(elapsed, 2),
                 "bytes": len(boosted),
             })
@@ -358,7 +358,7 @@ def api_tts_batch_stream():
                     "index": i,
                     "text": sentence[:120] + ("..." if len(sentence) > 120 else ""),
                     "chars": len(sentence),
-                    "file": f"/audio/history/{entry_id}.wav",
+                    "file": f"/audio/{out_path.relative_to(OUTPUT_DIR).as_posix()}",
                     "elapsed_sec": round(elapsed, 2),
                     "bytes": len(boosted),
                 }

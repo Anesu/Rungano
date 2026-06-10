@@ -27,6 +27,7 @@ const els = {
   toast: $('toast'),
   // Layout
   voiceCardBadges: $('voice-card-badges'), voiceLang: $('voice-lang'),
+  inputLang: $('input-lang'),
   settingsSummary: $('settings-summary'),
   recentSection: $('recent-section'), recentList: $('recent-list'), btnClearHistory: $('btn-clear-history'),
   emotionCount: $('emotion-count'), styleCount: $('style-count'),
@@ -165,11 +166,15 @@ async function loadVoices() {
 
 function updateVoiceCard() {
   const voice = state.voices.find(v => v.id === state.selectedVoice);
-  if (!voice) { els.voiceCardBadges.hidden = true; return; }
+  // Voice card language badge
+  if (!voice) { els.voiceCardBadges.hidden = true; els.inputLang.hidden = true; return; }
   const lang = voice.language || (voice.kind === 'custom' ? 'unknown' : 'any');
-  if (lang === 'any') { els.voiceCardBadges.hidden = true; return; }
+  if (lang === 'any') { els.voiceCardBadges.hidden = true; els.inputLang.hidden = true; return; }
   els.voiceCardBadges.hidden = false;
   els.voiceLang.textContent = lang;
+  // Language badge next to "Text to synthesise"
+  els.inputLang.hidden = false;
+  els.inputLang.textContent = lang.toUpperCase();
 }
 
 // ── Sentence playlist ─────────────────────────────────────────────────
@@ -233,7 +238,10 @@ function playSentence(index) {
   const s = state.sentences.find(x => x.index === index);
   if (!s || s.status !== 'done') return;
   state.playbackIndex = index;
-  els.audioPlayer.src = state.flaskUrl + s.file + `?t=${Date.now()}`;
+  const url = state.flaskUrl + s.file + `?t=${Date.now()}`;
+  // Don't restart if already playing this sentence
+  if (els.audioPlayer.src === url && !els.audioPlayer.paused) return;
+  els.audioPlayer.src = url;
   els.audioPlayer.play().catch(() => {});
   highlightCurrentSentence();
 }
@@ -584,11 +592,12 @@ async function saveM3u() {
     for (const s of done) {
       const name = (s.text || `Sentence ${s.index + 1}`).slice(0, 60);
       lines.push(`#EXTINF:${Math.ceil(s.elapsed_sec || 2)},${name}`);
+      // s.file is /audio/2026-06-10/234449-abc.wav — extract the date/path part
+      const relPath = s.file.replace(/^\/audio\//, '');
       if (outputDir) {
-        const fname = s.file.split('/').pop();
-        lines.push(`${outputDir}\\history\\${fname}`.replace(/\//g, '\\'));
+        lines.push(`${outputDir}\\${relPath}`.replace(/\//g, '\\'));
       } else {
-        lines.push(`${state.flaskUrl}${s.file}`);
+        lines.push(`${state.flaskUrl}/audio/${relPath}`);
       }
     }
     const blob = new Blob([lines.join('\n')], { type: 'audio/x-mpegurl' });
