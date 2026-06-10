@@ -1,33 +1,41 @@
 """
 VoiceCatalog — resolves voice IDs (preset or custom) into a uniform shape.
 
-Two kinds of voices:
-  - preset:   static list from config. May map to a bundled reference audio
-              on disk if the user dropped one in voices/preset-*.wav.
-  - custom:   user-uploaded reference audio + transcript, stored on disk under
-              voices/custom/<id>/audio.wav and voices/custom/<id>/meta.json.
+Directory structure:
+  voices/                    ← parallel to output/, not inside it
+    <language>/              ← auto-detected from folder name
+      <voice-name>/          ← sanitized, human-readable
+        reference.wav        ← consistent filename
+        meta.json            ← {id, name, language, transcript, ...}
 
-The catalog is the single seam for voice validation: callers never touch the
-filesystem directly. (Koko pattern — small stable interface, real seam.)
+Language is inferred from the directory tree — drop a voice into voices/shona/
+and it appears as Shona. No extra configuration needed.
 """
 from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
+import time
 import uuid
 from pathlib import Path
 
 logger = logging.getLogger("higgs.voices")
 
 
+def _sanitize_name(name: str) -> str:
+    """Turn a user-provided name into a safe directory name."""
+    safe = re.sub(r'[<>:"/\\|?*]', '_', name).strip().strip('.')
+    return safe[:50] if safe else "voice"
+
+
 class VoiceCatalog:
     def __init__(self, voices_dir: Path, preset_voices: tuple):
         self.voices_dir = voices_dir
-        self.custom_dir = voices_dir / "custom"
-        self.custom_dir.mkdir(parents=True, exist_ok=True)
+        self.voices_dir.mkdir(parents=True, exist_ok=True)
         self._presets = list(preset_voices)
-        # If a bundled preset-*.wav exists, wire it up
+        # Wire up preset WAVs if they exist on disk
         for p in self._presets:
             if p.get("kind") != "preset":
                 continue
@@ -37,7 +45,6 @@ class VoiceCatalog:
             wav = self.voices_dir / f"{pid}.wav"
             if wav.exists():
                 p["audio_path"] = str(wav)
-                # transcript is user-editable in voices/<id>.txt
                 txt = self.voices_dir / f"{pid}.txt"
                 if txt.exists():
                     p["transcript"] = txt.read_text(encoding="utf-8").strip()
@@ -47,33 +54,37 @@ class VoiceCatalog:
         return self._presets + self.custom_voices()
 
     def custom_voices(self) -> list[dict]:
+        """Scan voices/<lang>/<name>/meta.json for all custom voices."""
         out = []
-        if not self.custom_dir.exists():
+        if not self.voices_dir.exists():
             return out
-        for d in sorted(self.custom_dir.iterdir()):
-            if not d.is_dir():
+        for lang_dir in sorted(self.voices_dir.iterdir()):
+            if not lang_dir.is_dir() or lang_dir.name.startswith('.'):
                 continue
-            meta_path = d / "meta.json"
-            if not meta_path.exists():
-                continue
-            try:
-                meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            except Exception:
-                continue
-            out.append({
-                "id": meta["id"],
-                "name": meta.get("name", meta["id"]),
-                "kind": "custom",
-                "language": meta.get("language", "english"),
-                "audio_path": str(d / "audio" / meta.get("audio_filename", "ref.wav")),
-                "transcript": meta.get("transcript", ""),
-                "created_at": meta.get("created_at"),
-            })
+            language = lang_dir.name
+            for voice_dir in sorted(lang_dir.iterdir()):
+                if not voice_dir.is_dir():
+                    continue
+                meta_path = voice_dir / "meta.json"
+                if not meta_path.exists():
+                    continue
+                try:
+                    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                out.append({
+                    "id": meta.get("id", voice_dir.name),
+                    "name": meta.get("name", voice_dir.name),
+                    "kind": "custom",
+                    "language": language,
+                    "audio_path": str(voice_dir / meta.get("audio_filename", "reference.wav")),
+                    "transcript": meta.get("transcript", ""),
+                    "created_at": meta.get("created_at"),
+                })
         return out
 
     # ── Resolve by ID ───────────────────────────────────────────────
     def resolve(self, voice_id: str) -> dict | None:
-        """Return the voice record for `voice_id` or None."""
         for v in self._presets:
             if v["id"] == voice_id:
                 return v
@@ -82,29 +93,59 @@ class VoiceCatalog:
                 return v
         return None
 
-    # ── CRUD on custom voices ───────────────────────────────────────
-    def add_custom(self, *, name: str, language: str = "english", audio_bytes: bytes, audio_filename: str, transcript: str) -> str:
+    # ── Add custom voice ────────────────────────────────────────────
+    def add_custom(
+        self,
+        *,
+        name: str,
+        language: str = "english",
+        audio_bytes: bytes,
+        audio_filename: str = "reference.wav",
+        transcript: str = "",
+    ) -> str:
+        safe_name = _sanitize_name(name)
+        voice_dir = self.voices_dir / language / safe_name
+        voice_dir.mkdir(parents=True, exist_ok=True)
+
+        # Write reference audio (consistent filename)
+        (voice_dir / "reference.wav").write_bytes(audio_bytes)
+
         vid = uuid.uuid4().hex[:10]
-        d = self.custom_dir / vid
-        (d / "audio").mkdir(parents=True, exist_ok=True)
-        safe_name = Path(audio_filename).name or "ref.wav"
-        (d / "audio" / safe_name).write_bytes(audio_bytes)
         meta = {
             "id": vid,
             "name": name,
             "language": language,
             "transcript": transcript,
-            "audio_filename": safe_name,
-            "created_at": __import__("time").time(),
+            "audio_filename": "reference.wav",
+            "created_at": time.time(),
         }
-        (d / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
-        logger.info("Added custom voice: %s (%s, %d bytes audio)", vid, name, len(audio_bytes))
+        (voice_dir / "meta.json").write_text(
+            json.dumps(meta, indent=2), encoding="utf-8"
+        )
+        logger.info(
+            "Added custom voice: %s (%s/%s, %d bytes audio)",
+            vid, language, safe_name, len(audio_bytes),
+        )
         return vid
 
+    # ── Remove custom voice ─────────────────────────────────────────
     def remove_custom(self, voice_id: str) -> bool:
-        d = self.custom_dir / voice_id
-        if d.exists() and d.is_dir():
-            shutil.rmtree(d, ignore_errors=True)
-            logger.info("Removed custom voice: %s", voice_id)
-            return True
+        """Find and remove a custom voice by ID across all languages."""
+        for lang_dir in self.voices_dir.iterdir():
+            if not lang_dir.is_dir():
+                continue
+            for voice_dir in lang_dir.iterdir():
+                if not voice_dir.is_dir():
+                    continue
+                meta_path = voice_dir / "meta.json"
+                if not meta_path.exists():
+                    continue
+                try:
+                    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                if meta.get("id") == voice_id:
+                    shutil.rmtree(voice_dir, ignore_errors=True)
+                    logger.info("Removed custom voice: %s", voice_id)
+                    return True
         return False

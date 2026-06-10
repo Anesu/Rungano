@@ -556,7 +556,7 @@ async function exportAllWav() {
     const blob = await res.blob();
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'rungano-export.wav';
+    a.download = `rungano-${new Date().toISOString().slice(0,10)}.wav`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(a.href);
     toast(`Exported ${done.length} sentences as WAV.`);
@@ -605,8 +605,9 @@ function initDragDrop() {
     if (!file || !file.name.endsWith('.txt')) { toast('Drop a .txt file.', true); return; }
     const text = await file.text();
     textarea.value = text;
-    els.charCount.textContent = text.length;
-    toast(`Loaded ${file.name} (${text.length} chars).`);
+    const words = text.split(/\s+/).filter(Boolean).length;
+    els.charCount.textContent = words;
+    toast(`Loaded ${file.name} (${words} words).`);
   });
 }
 
@@ -635,8 +636,9 @@ async function loadRecentGenerations() {
       text.textContent = (e.text || '').slice(0, 80);
       text.title = e.text;
       const meta = document.createElement('span'); meta.className = 'r-meta';
-      const age = Math.round((Date.now() / 1000 - e.created_at) / 60);
-      meta.textContent = age < 1 ? 'just now' : age < 60 ? `${age}m ago` : `${Math.round(age / 60)}h ago`;
+      const d = new Date(e.created_at * 1000);
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      meta.textContent = `${d.getDate()} ${months[d.getMonth()]} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
       const play = document.createElement('span'); play.className = 'r-play'; play.textContent = '▶';
       div.appendChild(text); div.appendChild(meta); div.appendChild(play);
       div.addEventListener('click', () => {
@@ -673,7 +675,7 @@ async function init() {
   loadRecentGenerations();
 
   // Event wiring
-  els.textInput.addEventListener('input', () => { els.charCount.textContent = els.textInput.value.length; });
+  els.textInput.addEventListener('input', () => { els.charCount.textContent = els.textInput.value.split(/\s+/).filter(Boolean).length; });
   els.voiceSelect.addEventListener('change', () => { state.selectedVoice = els.voiceSelect.value; updateVoiceCard(); });
   els.btnSynth.addEventListener('click', () => {
     if (state._abortController) { cancelSynthesis(); }

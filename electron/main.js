@@ -243,7 +243,12 @@ ipcMain.handle('higgs:get-config', async () => ({
   version: app.getVersion(),
   isDev,
 }));
-ipcMain.handle('higgs:open-output', async () => shell.openPath(OUTPUT_DIR));
+ipcMain.handle('higgs:open-output', async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const todayDir = path.join(OUTPUT_DIR, today);
+  if (fs.existsSync(todayDir)) return shell.openPath(todayDir);
+  return shell.openPath(OUTPUT_DIR);
+});
 ipcMain.handle('higgs:restart-servers', async () => {
   if (flaskProcess) flaskProcess.kill();
   if (sglangProcess) sglangProcess.kill();

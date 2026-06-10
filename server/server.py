@@ -47,10 +47,9 @@ logger = logging.getLogger("higgs-server")
 
 # ── Paths ────────────────────────────────────────────────
 OUTPUT_DIR = Path(os.environ.get("HIGGS_OUTPUT_DIR", SERVER_DIR.parent / "output"))
-VOICES_DIR = OUTPUT_DIR / "voices"
-HISTORY_DIR = OUTPUT_DIR / "history"
+VOICES_DIR = SERVER_DIR.parent / "voices"  # input assets, not inside output
 VOICES_DIR.mkdir(parents=True, exist_ok=True)
-HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── State ─────────────────────────────────────────────────
 app = Flask(__name__, static_folder=None)
@@ -86,10 +85,18 @@ def get_text_chunker() -> TextChunker:
 def get_history() -> HistoryStore:
     global _history
     if _history is None:
-        _history = HistoryStore(history_dir=HISTORY_DIR)
+        _history = HistoryStore(output_dir=OUTPUT_DIR)
     return _history
 
 # ── Shared helpers (used by both TTS endpoints) ──────────
+
+def _make_output_path(entry_id: str) -> Path:
+    """Build a date-stamped output path: output/YYYY-MM-DD/HHMMSS-<id>.wav"""
+    today = time.strftime("%Y-%m-%d")
+    prefix = f"{time.strftime('%H%M%S')}-{entry_id}"
+    d = OUTPUT_DIR / today
+    d.mkdir(parents=True, exist_ok=True)
+    return d / f"{prefix}.wav"
 
 def _apply_controls(text: str, controls: dict) -> str:
     """Build control-tagged text from a structured controls dict.
@@ -200,7 +207,7 @@ def api_tts():
     references = _resolve_references(references, voice_id)
 
     entry_id = uuid.uuid4().hex[:12]
-    out_path = HISTORY_DIR / f"{entry_id}.wav"
+    out_path = _make_output_path(entry_id)
     try:
         t0 = time.time()
         tts = get_tts()
@@ -254,7 +261,7 @@ def api_tts_batch():
         tagged = _apply_controls(sentence, controls)
 
         entry_id = uuid.uuid4().hex[:12]
-        out_path = HISTORY_DIR / f"{entry_id}.wav"
+        out_path = _make_output_path(entry_id)
         try:
             t_start = time.time()
             raw = tts.synthesize(
@@ -327,7 +334,7 @@ def api_tts_batch_stream():
         for i, sentence in enumerate(sentences):
             tagged = _apply_controls(sentence, controls)
             entry_id = uuid.uuid4().hex[:12]
-            out_path = HISTORY_DIR / f"{entry_id}.wav"
+            out_path = _make_output_path(entry_id)
             try:
                 t_start = time.time()
                 raw = tts.synthesize(
@@ -418,9 +425,12 @@ def api_export_wav():
         return jsonify({"error": "Field 'ids' is required"}), 400
     wavs = []
     for eid in ids:
-        f = HISTORY_DIR / f"{eid}.wav"
-        if f.exists():
-            wavs.append(f.read_bytes())
+        # Search all date directories for the WAV file
+        for date_dir in OUTPUT_DIR.iterdir():
+            if not date_dir.is_dir(): continue
+            for f in date_dir.glob(f"*-{eid}.wav"):
+                wavs.append(f.read_bytes())
+                break
     if not wavs:
         return jsonify({"error": "No audio files found for the given ids"}), 404
     merged = concat_wavs(wavs, crossfade_ms=0, gap_ms=300)
@@ -428,6 +438,38 @@ def api_export_wav():
                     headers={"Content-Disposition": "attachment; filename=rungano-export.wav"})
 
 # ── Entrypoint ───────────────────────────────────────────
+def _migrate_legacy():
+    """One-time migration: move old output/history/ → output/<YYYY-MM-DD>/
+    and output/voices/ → voices/<lang>/<name>/"""
+    legacy_history = OUTPUT_DIR / "history"
+    legacy_voices = OUTPUT_DIR / "voices"
+    marker = OUTPUT_DIR / ".migrated-v2"
+    if marker.exists():
+        return
+    logger.info("Running v2 migration...")
+    # Migrate history
+    if legacy_history.exists():
+        for f in legacy_history.iterdir():
+            if not f.is_file(): continue
+            mtime = time.strftime("%Y-%m-%d", time.localtime(f.stat().st_mtime))
+            dest = OUTPUT_DIR / mtime
+            dest.mkdir(parents=True, exist_ok=True)
+            prefix = time.strftime("%H%M%S", time.localtime(f.stat().st_mtime))
+            new_name = f"{prefix}-{f.name}"
+            shutil.move(str(f), str(dest / new_name))
+        shutil.rmtree(legacy_history, ignore_errors=True)
+        logger.info("  Migrated history/ → date directories")
+    # Migrate voices (just move the whole tree)
+    if legacy_voices.exists():
+        for item in legacy_voices.iterdir():
+            dest = VOICES_DIR / item.name
+            if not dest.exists():
+                shutil.move(str(item), str(dest))
+        shutil.rmtree(legacy_voices, ignore_errors=True)
+        logger.info("  Migrated output/voices/ → voices/")
+    marker.touch()
+    logger.info("Migration complete.")
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=7861)
@@ -436,6 +478,7 @@ def main():
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
     os.environ["SGLANG_URL"] = args.sglang_url
+    _migrate_legacy()
     logger.info("Higgs TTS Flask proxy on http://%s:%d  (sglang: %s)", args.host, args.port, args.sglang_url)
     app.run(host=args.host, port=args.port, debug=args.debug, threaded=True, use_reloader=False)
 
