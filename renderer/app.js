@@ -126,40 +126,84 @@ function renderSentenceList() {
     txt.title = s.text;
 
     const meta = document.createElement('span'); meta.className = 's-meta';
-    if (s.status === 'running') { meta.innerHTML = '<span class="spinner" style="width:10px;height:10px;border-width:1.5px"></span>'; }
+    if (s.status === 'pending') { meta.textContent = 'waiting'; }
     else if (s.status === 'done') { meta.textContent = `${s.elapsed_sec}s · ${(s.bytes/1024).toFixed(0)}KB`; }
     else if (s.status === 'failed') { meta.textContent = 'failed'; meta.style.color = 'var(--bad)'; }
-    else { meta.textContent = 'waiting'; }
 
     if (s.status === 'done') {
       li.style.cursor = 'pointer';
-      li.addEventListener('click', () => playSentence(s.index));
+      li.addEventListener('click', (e) => {
+        // Don't trigger play if clicking the download button
+        if (e.target.classList.contains('s-dl')) return;
+        playSentence(s.index);
+      });
+
+      // Download button
+      const dl = document.createElement('button');
+      dl.className = 's-dl'; dl.title = 'Download WAV';
+      dl.textContent = '⬇';
+      dl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        downloadSentence(s);
+      });
+      li.appendChild(dl);
     }
 
     li.appendChild(idx); li.appendChild(txt); li.appendChild(meta);
     els.sentenceList.appendChild(li);
   }
   els.btnPlayAll.hidden = !state.sentences.some(s => s.status === 'done');
+  highlightCurrentSentence();
+}
+
+function downloadSentence(s) {
+  const a = document.createElement('a');
+  a.href = state.flaskUrl + s.file;
+  a.download = `sentence-${s.index + 1}.wav`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 function playSentence(index) {
   const s = state.sentences.find(x => x.index === index);
   if (!s || s.status !== 'done') return;
   state.playbackIndex = index;
-  els.audioPlayer.src = s.file + `?t=${Date.now()}`;
+  els.audioPlayer.src = state.flaskUrl + s.file + `?t=${Date.now()}`;
   els.audioPlayer.play().catch(() => {});
   highlightCurrentSentence();
 }
 
+function togglePlayPause() {
+  if (els.audioPlayer.paused) {
+    els.audioPlayer.play().catch(() => {});
+  } else {
+    els.audioPlayer.pause();
+  }
+}
+
+function playPreviousSentence() {
+  const prev = [...state.sentences].reverse().find(
+    s => s.index < state.playbackIndex && s.status === 'done'
+  );
+  if (prev) playSentence(prev.index);
+}
+
 function playNextSentence() {
-  const next = state.sentences.find(s => s.index > state.playbackIndex && s.status === 'done');
+  const next = state.sentences.find(
+    s => s.index > state.playbackIndex && s.status === 'done'
+  );
   if (next) { playSentence(next.index); }
   else { state.playbackIndex = -1; highlightCurrentSentence(); }
 }
 
 function highlightCurrentSentence() {
   for (const li of els.sentenceList.children) {
-    li.classList.toggle('playing', parseInt(li.dataset.index) === state.playbackIndex);
+    const idx = parseInt(li.dataset.index);
+    li.classList.toggle('playing', idx === state.playbackIndex);
+    // Show ▶ indicator on the currently playing sentence's index
+    const idxSpan = li.querySelector('.s-idx');
+    if (idxSpan) idxSpan.textContent = idx === state.playbackIndex ? '▶' : `${idx + 1}`;
   }
 }
 
@@ -396,6 +440,26 @@ async function init() {
 
   // Ctrl+Enter to synthesise
   els.textInput.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); synthesise(); } });
+
+  // Global keyboard shortcuts for playback (only when textarea is not focused)
+  document.addEventListener('keydown', (e) => {
+    if (document.activeElement === els.textInput) return;  // don't steal typing
+    if (e.target.closest('#clone-modal') && !els.cloneModal.hidden) return;
+    if (e.key === ' ' || e.code === 'Space') {
+      e.preventDefault();
+      if (state.sentences.some(s => s.status === 'done')) togglePlayPause();
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      playNextSentence();
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      playPreviousSentence();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      if (state._abortController) { cancelSynthesis(); }
+      else { els.audioPlayer.pause(); state.playbackIndex = -1; highlightCurrentSentence(); }
+    }
+  });
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

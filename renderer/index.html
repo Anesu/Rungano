@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: data:; connect-src 'self' http://127.0.0.1:7861 http://127.0.0.1:8000">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: data: http://127.0.0.1:7861; connect-src 'self' http://127.0.0.1:7861 http://127.0.0.1:8000">
   <title>Rungano</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -91,6 +91,7 @@
         </div>
 
         <ul class="sentence-list" id="sentence-list"></ul>
+        <p class="shortcuts-hint" id="shortcuts-hint">Space: play/pause &nbsp; ← →: prev/next &nbsp; Esc: stop &nbsp; Ctrl+Enter: synthesise</p>
       </section>
     </main>
 
