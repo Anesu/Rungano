@@ -256,10 +256,11 @@ def _api_tts_long_impl():
         try:
             raw = tts.synthesize(text=chunk, references=references, temperature=temperature, top_k=top_k, max_new_tokens=tok)
             boosted = apply_gain(raw, gain=volume)
-            # Trim trailing silence, but NEVER trim the last chunk — that's
-            # where the ending gets eaten (v2 bug).
+            # Trim trailing noise, but preserve natural speech decay at sentence ends.
+            # Higgs produces a slow amplitude taper at sentence boundaries — a short
+            # pad clips it. 0.8s keeps the natural cadence intact.
             if i < len(chunks) - 1:
-                boosted = trim_silence(boosted, threshold_ratio=0.02, pad_sec=0.2)
+                boosted = trim_silence(boosted, threshold_ratio=0.02, pad_sec=0.8)
             wavs.append(boosted)
         except Exception as e:
             logger.error("Chunk %d failed: %s", i + 1, e)
