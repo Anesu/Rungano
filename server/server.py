@@ -3,12 +3,13 @@ Higgs TTS — Flask proxy server.
 
 Sits between the Electron renderer and SGLang-Omni. Provides:
   GET  /api/health              — readiness + GPU VRAM
+  GET  /api/controls            — control token catalogue (emotion, style, prosody, sfx)
   GET  /api/voices              — list voices (presets + custom)
   GET  /api/voices/custom       — list custom cloned voices
   POST /api/voices/custom       — upload reference audio + transcript
   DELETE /api/voices/custom/<id>— remove a custom voice
   POST /api/tts                 — synthesise (single chunk, volume boost)
-  POST /api/tts/long            — synthesise (auto-chunked for long text)
+  POST /api/tts/batch           — synthesise (sentence-by-sentence, controls applied per utterance)
   GET  /api/history             — list past generations
   DELETE /api/history/<id>      — delete a history entry
   POST /v1/audio/speech         — OpenAI-compatible passthrough
@@ -17,20 +18,12 @@ Sits between the Electron renderer and SGLang-Omni. Provides:
 from __future__ import annotations
 
 import argparse
-import base64
-import json
 import logging
 import os
-import re as _re
-import shutil
-import struct
-import subprocess as _subprocess
 import threading
 import time
 import uuid
-import wave
 from pathlib import Path
-from typing import Any
 
 import requests
 from flask import Flask, Response, jsonify, request, send_from_directory, stream_with_context
@@ -41,9 +34,12 @@ SERVER_DIR = Path(__file__).parent
 sys.path.insert(0, str(SERVER_DIR))
 
 from higgs.config import config
-from higgs.core import HiggsTTS
+from higgs.core import EMOTIONS, PROSODY, SOUND_EFFECTS, STYLES, HiggsTTS, build_input_text
+from higgs.history import HistoryStore
+from higgs.system import gpu_info, wsl_path
+from higgs.text import TextChunker
 from higgs.voices import VoiceCatalog
-from higgs.audio import apply_gain, concat_wavs, silence_ms, trim_silence  # noqa: E402
+from higgs.audio import apply_gain, trim_silence  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 logger = logging.getLogger("higgs-server")
@@ -59,6 +55,8 @@ HISTORY_DIR.mkdir(parents=True, exist_ok=True)
 app = Flask(__name__, static_folder=None)
 _voice_catalog: VoiceCatalog | None = None
 _tts: HiggsTTS | None = None
+_text_chunker: TextChunker | None = None
+_history: HistoryStore | None = None
 _tts_lock = threading.Lock()
 
 # ── Lazy init ────────────────────────────────────────────
@@ -78,55 +76,39 @@ def get_tts() -> HiggsTTS:
                 _tts = HiggsTTS(sglang_url=sglang_url, timeout=config.request_timeout)
     return _tts
 
-# ── Helpers ──────────────────────────────────────────────
-def _wsl_path(windows_path: str) -> str:
-    p = windows_path.replace("\\", "/")
-    m = _re.match(r"^([A-Za-z]):/", p)
-    if m:
-        p = f"/mnt/{m.group(1).lower()}/{p[3:]}"
-    return p
+def get_text_chunker() -> TextChunker:
+    global _text_chunker
+    if _text_chunker is None:
+        _text_chunker = TextChunker(strategy="sentence")
+    return _text_chunker
 
-def _gpu_info() -> dict:
-    gpu = {"name": "", "vram_used_mb": 0, "vram_total_mb": 0, "vram_free_mb": 0}
-    try:
-        nvsmi = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "nvidia-smi.exe")
-        out = _subprocess.check_output(
-            [nvsmi, "--query-gpu=name,memory.used,memory.total,memory.free", "--format=csv,noheader,nounits"],
-            timeout=5, text=True
-        ).strip()
-        parts = out.split(",")
-        if len(parts) >= 4:
-            gpu["name"] = parts[0].strip()
-            gpu["vram_used_mb"] = int(parts[1].strip())
-            gpu["vram_total_mb"] = int(parts[2].strip())
-            gpu["vram_free_mb"] = int(parts[3].strip())
-    except Exception:
-        pass
-    return gpu
+def get_history() -> HistoryStore:
+    global _history
+    if _history is None:
+        _history = HistoryStore(history_dir=HISTORY_DIR)
+    return _history
 
-def _save_history_entry(entry_id, text, voice_id, references, file_path, elapsed_sec):
-    meta = {"id": entry_id, "text": text, "voice_id": voice_id, "references": references,
-            "file": str(file_path.relative_to(OUTPUT_DIR)), "elapsed_sec": round(elapsed_sec, 2),
-            "created_at": time.time()}
-    (HISTORY_DIR / f"{entry_id}.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+# ── Shared helpers (used by both TTS endpoints) ──────────
 
-def _split_sentences(text: str, max_chunk: int = 350) -> list[str]:
-    parts = _re.split(r"(?<=[.!?])\s+|\n\n+", text)
-    chunks: list[str] = []
-    buf = ""
-    for p in parts:
-        p = p.strip()
-        if not p:
-            continue
-        if len(buf) + len(p) + 1 <= max_chunk:
-            buf = (buf + " " + p).strip() if buf else p
-        else:
-            if buf:
-                chunks.append(buf)
-            buf = p
-    if buf:
-        chunks.append(buf)
-    return chunks if chunks else [text]
+def _apply_controls(text: str, controls: dict) -> str:
+    """Build control-tagged text from a structured controls dict.
+    Canonical path — the server owns prompt format, not the renderer."""
+    return build_input_text(text,
+        emotion=controls.get("emotion"),
+        style=controls.get("style"),
+        prosody=controls.get("prosody"),
+        sfx=controls.get("sfx"))
+
+def _resolve_references(references, voice_id: str | None):
+    """Resolve a voice_id into reference audio dicts for custom voices.
+    Returns references unchanged if already set or voice is preset."""
+    if references is not None or not voice_id:
+        return references
+    voice = get_voice_catalog().resolve(voice_id)
+    if voice and voice.get("kind") == "custom":
+        return [{"audio_path": wsl_path(voice.get("audio_path", "")),
+                 "text": voice.get("transcript", "")}]
+    return references
 
 # ── Health ───────────────────────────────────────────────
 @app.route("/api/health", methods=["GET"])
@@ -148,7 +130,7 @@ def api_health():
         "sglang_models": sglang_models,
         "server_version": "0.1.0",
         "preset_voices_count": len(config.preset_voices),
-        "gpu": _gpu_info(),
+        "gpu": gpu_info(),
     })
 
 # ── Voices ───────────────────────────────────────────────
@@ -177,6 +159,22 @@ def api_voices_custom_delete(voice_id):
     ok = get_voice_catalog().remove_custom(voice_id)
     return jsonify({"deleted": voice_id}) if ok else (jsonify({"error": "Voice not found"}), 404)
 
+# ── Controls catalogue ─────────────────────────────────────
+@app.route("/api/controls", methods=["GET"])
+def api_controls():
+    """Single source of truth for control tokens. Renderer fetches this at startup."""
+    sfx_suggested = {
+        "cough": "Ahem", "laughter": "Haha", "crying": "Boohoo", "screaming": "Ahh",
+        "burping": "Burp", "humming": "Hmm", "sigh": "Uh", "sniff": "Sff", "sneeze": "Achoo",
+    }
+    sfx_list = [{"token": t, "suggested": sfx_suggested.get(t, t)} for t in SOUND_EFFECTS]
+    return jsonify({
+        "emotions": list(EMOTIONS),
+        "styles": list(STYLES),
+        "prosody": list(PROSODY),
+        "sfx": sfx_list,
+    })
+
 # ── TTS (single) ─────────────────────────────────────────
 @app.route("/api/tts", methods=["POST"])
 def api_tts():
@@ -191,11 +189,12 @@ def api_tts():
     top_k = int(data.get("top_k", 50))
     max_new_tokens = int(data.get("max_new_tokens", 4096))
     volume = float(data.get("volume", 1.8))
+    controls = data.get("controls") or {}
 
-    if references is None and voice_id:
-        voice = get_voice_catalog().resolve(voice_id)
-        if voice and voice.get("kind") == "custom":
-            references = [{"audio_path": _wsl_path(voice.get("audio_path", "")), "text": voice.get("transcript", "")}]
+    # Build tagged text from structured controls (canonical path — server owns prompt format)
+    text = _apply_controls(text, controls)
+
+    references = _resolve_references(references, voice_id)
 
     entry_id = uuid.uuid4().hex[:12]
     out_path = HISTORY_DIR / f"{entry_id}.wav"
@@ -204,45 +203,14 @@ def api_tts():
         tts = get_tts()
         audio_bytes = tts.synthesize(text=text, references=references, temperature=temperature, top_k=top_k, max_new_tokens=max_new_tokens)
         audio_bytes = apply_gain(audio_bytes, gain=volume)
-        audio_bytes = trim_silence(audio_bytes, threshold_ratio=0.02, pad_sec=0.2)
+        audio_bytes = trim_silence(audio_bytes)
         out_path.write_bytes(audio_bytes)
         elapsed = time.time() - t0
-        _save_history_entry(entry_id, text=text, voice_id=voice_id, references=references, file_path=out_path, elapsed_sec=elapsed)
+        get_history().save(entry_id=entry_id, text=text, voice_id=voice_id, references=references, file_path=out_path, elapsed_sec=elapsed)
         return jsonify({"id": entry_id, "file": f"/audio/history/{entry_id}.wav", "elapsed_sec": round(elapsed, 2), "bytes": len(audio_bytes), "volume_applied": volume})
     except Exception as e:
         logger.exception("TTS failed")
         return jsonify({"error": str(e)}), 500
-
-def _trim_trailing_quiet(wav_bytes: bytes, abs_threshold: int = 100, pad_sec: float = 0.3) -> bytes:
-    """
-    Trim trailing audio where samples stay below `abs_threshold`.
-    Only catches digital noise floor — real speech is hundreds to thousands.
-    Much safer than ratio-based trimming which can clip quiet speech.
-    """
-    import io as _io
-    with wave.open(_io.BytesIO(wav_bytes), "rb") as wf:
-        params = wf.getparams()
-        nframes = params.nframes
-        frames = wf.readframes(nframes)
-    fmt = f"<{nframes}h"
-    samples = list(struct.unpack(fmt, frames))
-    pad_frames = int(params.framerate * pad_sec)
-    # Scan backwards — find the last sample above threshold
-    cutoff = nframes
-    for i in range(nframes - 1, pad_frames, -1):
-        if abs(samples[i]) > abs_threshold:
-            cutoff = min(i + pad_frames, nframes)
-            break
-    if cutoff >= nframes - int(params.framerate * 0.1):
-        return wav_bytes  # nothing to trim
-    trimmed = samples[:cutoff]
-    buf = _io.BytesIO()
-    new_params = params._replace(nframes=len(trimmed))
-    with wave.open(buf, "wb") as wf:
-        wf.setparams(new_params)
-        wf.writeframes(struct.pack(f"<{len(trimmed)}h", *trimmed))
-    return buf.getvalue()
-
 
 # ── TTS (batch / sentence-by-sentence) ────────────────────
 # The Higgs model performs best on short utterances (it was designed for voice
@@ -265,16 +233,12 @@ def api_tts_batch():
     temperature = float(data.get("temperature", 0.8))
     top_k = int(data.get("top_k", 50))
     volume = float(data.get("volume", 1.8))
+    controls = data.get("controls") or {}
 
-    # Resolve voice reference once (reused for every sentence)
-    if references is None and voice_id:
-        voice = get_voice_catalog().resolve(voice_id)
-        if voice and voice.get("kind") == "custom":
-            references = [{"audio_path": _wsl_path(voice.get("audio_path", "")), "text": voice.get("transcript", "")}]
+    references = _resolve_references(references, voice_id)
 
-    # Split into individual sentences — every sentence gets its own clean generation.
-    # max_chunk=999999 ensures we split on every sentence boundary.
-    sentences = _split_sentences(text, max_chunk=999999)
+    # Split into individual sentences using spaCy (with regex fallback).
+    sentences = get_text_chunker().chunk(text)
     logger.info("Batch TTS: %d sentences for %d chars", len(sentences), len(text))
 
     t0 = time.time()
@@ -283,12 +247,15 @@ def api_tts_batch():
     failed = 0
 
     for i, sentence in enumerate(sentences):
+        # Apply controls per-sentence so every utterance gets emotion/style/prosody/sfx.
+        tagged = _apply_controls(sentence, controls)
+
         entry_id = uuid.uuid4().hex[:12]
         out_path = HISTORY_DIR / f"{entry_id}.wav"
         try:
             t_start = time.time()
             raw = tts.synthesize(
-                text=sentence,
+                text=tagged,
                 references=references,
                 temperature=temperature,
                 top_k=top_k,
@@ -305,7 +272,7 @@ def api_tts_batch():
                 "elapsed_sec": round(elapsed, 2),
                 "bytes": len(boosted),
             })
-            _save_history_entry(entry_id, text=sentence, voice_id=voice_id, references=references, file_path=out_path, elapsed_sec=elapsed)
+            get_history().save(entry_id=entry_id, text=sentence, voice_id=voice_id, references=references, file_path=out_path, elapsed_sec=elapsed)
             logger.info("  Sentence %d/%d: %d chars -> %.1fs, %d bytes", i + 1, len(sentences), len(sentence), elapsed, len(boosted))
         except Exception as e:
             logger.error("Sentence %d failed: %s", i + 1, e)
@@ -337,23 +304,12 @@ def openai_passthrough():
 # ── History ──────────────────────────────────────────────
 @app.route("/api/history", methods=["GET"])
 def api_history():
-    entries = []
-    for jf in sorted(HISTORY_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
-        try:
-            entries.append(json.loads(jf.read_text(encoding="utf-8")))
-        except Exception:
-            continue
-    return jsonify({"entries": entries})
+    return jsonify({"entries": get_history().list_all()})
 
 @app.route("/api/history/<entry_id>", methods=["DELETE"])
 def api_history_delete(entry_id):
-    deleted = False
-    for ext in (".json", ".wav"):
-        f = HISTORY_DIR / f"{entry_id}{ext}"
-        if f.exists():
-            f.unlink()
-            deleted = True
-    return jsonify({"deleted": entry_id, "ok": deleted})
+    ok = get_history().delete(entry_id)
+    return jsonify({"deleted": entry_id, "ok": ok})
 
 # ── Static audio ─────────────────────────────────────────
 @app.route("/audio/<path:filename>")

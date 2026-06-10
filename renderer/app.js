@@ -4,6 +4,10 @@
  * The Higgs model performs best on short utterances. We split text into
  * sentences, synthesize each independently, and present them as a playlist.
  * No trimming, no crossfading, no concatenation — each sentence is a clean WAV.
+ *
+ * Control tokens (emotion, style, prosody, sfx) are fetched from the server
+ * at startup. The renderer sends structured controls to the server, which
+ * owns the canonical tag-construction path via build_input_text().
  */
 
 const $ = (id) => document.getElementById(id);
@@ -24,37 +28,24 @@ const els = {
   toast: $('toast'),
 };
 
-// ── Control catalogues ────────────────────────────────────────────────
-const EMOTIONS = ["elation","amusement","enthusiasm","determination","pride","contentment",
-  "affection","relief","contemplation","confusion","surprise","awe","longing","arousal",
-  "anger","fear","disgust","bitterness","sadness","shame","helplessness"];
-const STYLES = ["singing","shouting","whispering"];
-const PROSODY = ["speed_very_slow","speed_slow","speed_fast","speed_very_fast",
-  "pitch_low","pitch_high","pause","long_pause","expressive_high","expressive_low"];
-const SFX = [
-  { token: "cough", suggested: "Ahem" }, { token: "laughter", suggested: "Haha / Hehe" },
-  { token: "crying", suggested: "Boohoo / Sob" }, { token: "screaming", suggested: "Ahh / Aaah" },
-  { token: "burping", suggested: "Burp" }, { token: "humming", suggested: "Hmm / Mmm" },
-  { token: "sigh", suggested: "Uh / Ahh" }, { token: "sniff", suggested: "Sff" },
-  { token: "sneeze", suggested: "Achoo" },
-];
-
+// ── State ──────────────────────────────────────────────────────────────
 const state = {
   voices: [], selectedVoice: "default",
   emotion: null, style: null, prosody: new Set(), sfx: new Map(),
   sglangReady: false,
+  flaskUrl: 'http://127.0.0.1:7861',  // overridden by IPC getConfig() if available
   sentences: [],  // { index, text, file, elapsed_sec, bytes, status: 'pending'|'running'|'done'|'failed' }
   playbackIndex: -1,
 };
 
-// ── API ───────────────────────────────────────────────────────────────
+// ── API ────────────────────────────────────────────────────────────────
 async function api(path, opts = {}) {
-  const res = await fetch(`http://127.0.0.1:7861${path}`, opts);
+  const res = await fetch(`${state.flaskUrl}${path}`, opts);
   if (!res.ok) { const err = await res.json().catch(() => ({ error: res.statusText })); throw new Error(err.error || res.statusText); }
   return res.json();
 }
 
-// ── Toast ─────────────────────────────────────────────────────────────
+// ── Toast ──────────────────────────────────────────────────────────────
 let toastTimer = null;
 function toast(msg, isError = false) {
   els.toast.textContent = msg; els.toast.hidden = false;
@@ -63,10 +54,13 @@ function toast(msg, isError = false) {
   toastTimer = setTimeout(() => { els.toast.hidden = true; }, 4000);
 }
 
-// ── Chips ────────────────────────────────────────────────────────────
+// ── Chip UI (built from server catalogue) ──────────────────────────────
 function buildChipRow(parent, items, mode = 'single', dataKey = 'token') {
   parent.innerHTML = '';
-  for (const it of (typeof items[0] === 'string' ? items.map(s => ({ [dataKey]: s, label: s })) : items)) {
+  const normalized = (typeof items[0] === 'string')
+    ? items.map(s => ({ [dataKey]: s, label: s }))
+    : items;
+  for (const it of normalized) {
     const c = document.createElement('button');
     c.className = 'chip'; c.textContent = it.label || it[dataKey]; c.dataset.value = it[dataKey];
     if (it.suggested) c.title = `Onomatopoeia: ${it.suggested}`;
@@ -74,6 +68,7 @@ function buildChipRow(parent, items, mode = 'single', dataKey = 'token') {
     parent.appendChild(c);
   }
 }
+
 function handleChipClick(parent, chip, item, mode) {
   const category = parent.dataset.category, value = chip.dataset.value;
   if (mode === 'single') {
@@ -90,25 +85,21 @@ function handleChipClick(parent, chip, item, mode) {
     else { const sug = item.suggested || value; const u = prompt(`Onomatopoeia for "${value}"?`, sug); state.sfx.set(value, u || sug); }
   }
 }
-function initChips() {
-  buildChipRow(els.emotionChips, EMOTIONS, 'single');
-  buildChipRow(els.styleChips, STYLES, 'single');
-  buildChipRow(els.prosodyChips, PROSODY, 'multi-prosody');
-  buildChipRow(els.sfxChips, SFX, 'multi-sfx');
+
+async function initChips() {
+  try {
+    const catalogue = await api('/api/controls');
+    buildChipRow(els.emotionChips, catalogue.emotions, 'single');
+    buildChipRow(els.styleChips, catalogue.styles, 'single');
+    buildChipRow(els.prosodyChips, catalogue.prosody, 'multi-prosody');
+    buildChipRow(els.sfxChips, catalogue.sfx, 'multi-sfx');
+  } catch (e) {
+    // Server may not be ready yet — retry when IPC health event signals SGLang ready.
+    console.warn('Controls catalogue not available:', e.message);
+  }
 }
 
-function buildInputText() {
-  const raw = els.textInput.value;
-  if (/<\|[a-z]+:[a-z_]+\|>/.test(raw)) return raw;
-  const tags = [];
-  if (state.emotion) tags.push(`<|emotion:${state.emotion}|>`);
-  if (state.style) tags.push(`<|style:${state.style}|>`);
-  for (const p of state.prosody) tags.push(`<|prosody:${p}|>`);
-  for (const [token, ono] of state.sfx) tags.push(`<|sfx:${token}|>${ono}`);
-  return tags.join('') + raw;
-}
-
-// ── Voices ───────────────────────────────────────────────────────────
+// ── Voices ────────────────────────────────────────────────────────────
 async function loadVoices() {
   try {
     const { voices } = await api('/api/voices');
@@ -119,7 +110,7 @@ async function loadVoices() {
   } catch (e) { els.voiceSelect.innerHTML = '<option>Server unavailable</option>'; }
 }
 
-// ── Sentence playlist ────────────────────────────────────────────────
+// ── Sentence playlist ─────────────────────────────────────────────────
 function renderSentenceList() {
   els.sentenceList.innerHTML = '';
   if (!state.sentences.length) { els.btnPlayAll.hidden = true; return; }
@@ -171,9 +162,18 @@ function highlightCurrentSentence() {
   }
 }
 
-// ── Synthesise batch ─────────────────────────────────────────────────
+// ── Synthesise batch ──────────────────────────────────────────────────
+function buildControlsPayload() {
+  const ctrl = {};
+  if (state.emotion) ctrl.emotion = state.emotion;
+  if (state.style) ctrl.style = state.style;
+  if (state.prosody.size) ctrl.prosody = [...state.prosody];
+  if (state.sfx.size) ctrl.sfx = [...state.sfx.entries()];  // [[token, ono], ...]
+  return Object.keys(ctrl).length ? ctrl : undefined;
+}
+
 async function synthesise() {
-  const text = buildInputText().trim();
+  const text = els.textInput.value.trim();
   if (!text) { toast('Type some text first.', true); return; }
 
   els.btnSynth.disabled = true; els.spinnerSynth.hidden = false;
@@ -183,9 +183,11 @@ async function synthesise() {
 
   try {
     const body = { text, voice_id: state.selectedVoice, volume: 1.8 };
+    const controls = buildControlsPayload();
+    if (controls) body.controls = controls;
+
     const result = await api('/api/tts/batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
-    // Populate sentence list from server response
     state.sentences = result.sentences.map(s => ({ ...s, status: 'done' }));
     const done = result.sentences.length;
     const total = result.total;
@@ -212,36 +214,42 @@ function updateProgress(done, total) {
   if (done >= total) setTimeout(() => { els.progressWrap.hidden = true; }, 2000);
 }
 
-// ── Progress polling during batch synthesis ──────────────────────────
-// The batch is synchronous (server processes all sentences and returns).
-// Progress is shown as a simple done/total counter.
+// ── Health (IPC-driven from Electron main process) ─────────────────────
+// The main process polls Flask + SGLang every 10s and pushes results via
+// the higgs:health IPC event. The renderer is a pure consumer — no duplicate
+// HTTP polling, no hardcoded interval. In dev/browser mode (no window.higgs),
+// the UI stays at "Connecting…" which is correct for a desktop-only app.
 
-// ── Health ───────────────────────────────────────────────────────────
-async function pollHealthDirect() {
-  try {
-    const d = await api('/api/health');
-    if (d.flask_ready) { els.dotServer.className = 'dot ok'; els.textServer.textContent = 'Flask: ready'; }
-    else { els.dotServer.className = 'dot bad'; els.textServer.textContent = 'Flask: down'; }
-    if (d.sglang_ready) {
-      els.dotSglang.className = 'dot ok';
-      const models = d.sglang_models || []; const gpu = d.gpu || {};
-      const vram = gpu.vram_free_mb ? ` (${(gpu.vram_free_mb/1024).toFixed(1)}GB free)` : '';
-      els.textSglang.textContent = `Model: ${models[0] || 'ready'}${vram}`;
+function updateHealthUI(flaskReady, sglangReady, flaskBody) {
+  if (flaskReady) {
+    els.dotServer.className = 'dot ok'; els.textServer.textContent = 'Flask: ready';
+  } else {
+    els.dotServer.className = 'dot bad'; els.textServer.textContent = 'Flask: down';
+  }
+  if (sglangReady) {
+    els.dotSglang.className = 'dot ok';
+    const models = flaskBody?.sglang_models || [];
+    const gpu = flaskBody?.gpu || {};
+    const vram = gpu.vram_free_mb ? ` (${(gpu.vram_free_mb/1024).toFixed(1)}GB free)` : '';
+    els.textSglang.textContent = `Model: ${models[0] || 'ready'}${vram}`;
+    if (!state.sglangReady) {
       state.sglangReady = true;
-    } else {
-      els.dotSglang.className = 'dot bad'; els.textSglang.textContent = 'Model: not ready';
-      state.sglangReady = false;
+      initChips();  // controls endpoint may have been unreachable during cold start
     }
-  } catch (e) {
-    els.dotServer.className = 'dot bad'; els.textServer.textContent = 'Flask: unreachable';
-    els.dotSglang.className = 'dot bad'; els.textSglang.textContent = 'Model: unknown';
+  } else {
+    els.dotSglang.className = 'dot bad'; els.textSglang.textContent = 'Model: not ready';
     state.sglangReady = false;
   }
 }
-let _healthInterval = null;
-function startHealthPolling() { pollHealthDirect(); _healthInterval = setInterval(pollHealthDirect, 8000); }
 
-// ── Clone modal ──────────────────────────────────────────────────────
+function startHealthListening() {
+  if (!window.higgs?.onHealth) return;
+  window.higgs.onHealth((payload) => {
+    updateHealthUI(payload.flask, payload.sglang, payload.flaskBody);
+  });
+}
+
+// ── Clone modal ───────────────────────────────────────────────────────
 function openCloneModal() {
   els.cloneName.value = ''; els.cloneAudio.value = ''; els.cloneTranscript.value = '';
   els.cloneModal.hidden = false; els.cloneModal.style.display = 'flex';
@@ -252,18 +260,29 @@ async function saveClone() {
   if (!name || !file || !transcript) { toast('Name, audio file, and transcript are all required.', true); return; }
   const fd = new FormData(); fd.append('name', name); fd.append('transcript', transcript); fd.append('audio', file);
   try {
-    const r = await fetch('http://127.0.0.1:7861/api/voices/custom', { method: 'POST', body: fd });
+    const r = await fetch(`${state.flaskUrl}/api/voices/custom`, { method: 'POST', body: fd });
     if (!r.ok) throw new Error(await r.text());
     toast(`Voice "${name}" added.`); closeCloneModal(); await loadVoices();
     const data = await r.json(); state.selectedVoice = data.id; els.voiceSelect.value = data.id;
   } catch (e) { toast(`Save failed: ${e.message}`, true); }
 }
 
-// ── Init ─────────────────────────────────────────────────────────────
-function init() {
+// ── Init ──────────────────────────────────────────────────────────────
+async function init() {
+  // Fetch server URL from Electron main process (IPC). Falls back to default
+  // hardcoded URL if preload is absent (browser dev mode).
+  try {
+    const config = await window.higgs?.getConfig();
+    if (config?.flaskUrl) state.flaskUrl = config.flaskUrl;
+  } catch {}
+
+  // Health updates come from main process via IPC — no duplicate HTTP polling.
+  startHealthListening();
+
+  // Try to load controls catalogue early; if server isn't up yet,
+  // the IPC health handler will retry initChips() when SGLang transitions ready.
   initChips();
   loadVoices();
-  startHealthPolling();
 
   els.textInput.addEventListener('input', () => { els.charCount.textContent = els.textInput.value.length; });
   els.voiceSelect.addEventListener('change', () => { state.selectedVoice = els.voiceSelect.value; });

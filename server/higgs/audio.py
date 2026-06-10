@@ -106,39 +106,37 @@ def concat_wavs(wavs: list[bytes], crossfade_ms: int = 50, gap_ms: int = 300) ->
     return buf.getvalue()
 
 
-def trim_silence(wav_bytes: bytes, threshold_ratio: float = 0.01, pad_sec: float = 0.3, window_ms: int = 50) -> bytes:
-    """Trim trailing low-energy audio. Used on single-chunk /api/tts only."""
+def trim_silence(wav_bytes: bytes, abs_threshold: int = 100, pad_sec: float = 0.3) -> bytes:
+    """Trim trailing near-silence from a 16-bit mono WAV.
+
+    Uses an absolute sample threshold (not ratio-based) to avoid clipping
+    quiet speech. Scans backwards from the end; the first sample above
+    `abs_threshold` marks the cutoff, plus `pad_sec` of breathing room.
+
+    Safe default: abs_threshold=100 catches digital noise floor (~±100)
+    while preserving real speech (hundreds to thousands).
+    """
     if not wav_bytes:
         return wav_bytes
     with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
         params = wf.getparams()
-        framerate = params.framerate
         nframes = params.nframes
         frames = wf.readframes(nframes)
     fmt = f"<{nframes}h"
     samples = list(struct.unpack(fmt, frames))
-    peak = max(abs(s) for s in samples)
-    if peak == 0:
+    pad_frames = int(params.framerate * pad_sec)
+    cutoff = nframes
+    for i in range(nframes - 1, pad_frames, -1):
+        if abs(samples[i]) > abs_threshold:
+            cutoff = min(i + pad_frames, nframes)
+            break
+    # If the cutoff is within the last 10% of the clip, nothing to trim
+    if cutoff >= nframes - int(params.framerate * 0.1):
         return wav_bytes
-    threshold = int(peak * threshold_ratio)
-    window_frames = max(1, int(framerate * window_ms / 1000))
-    last_loud_window_end = 0
-    for start in range(0, nframes - window_frames, window_frames):
-        end = start + window_frames
-        window_avg = sum(abs(s) for s in samples[start:end]) / window_frames
-        if window_avg > threshold:
-            last_loud_window_end = end
-    if last_loud_window_end == 0:
-        return wav_bytes
-    pad_frames = int(framerate * pad_sec)
-    cut_idx = min(last_loud_window_end + pad_frames, nframes)
-    if cut_idx >= nframes - window_frames:
-        return wav_bytes
-    trimmed_samples = samples[:cut_idx]
-    new_nframes = len(trimmed_samples)
+    trimmed = samples[:cutoff]
     buf = io.BytesIO()
-    new_params = params._replace(nframes=new_nframes)
+    new_params = params._replace(nframes=len(trimmed))
     with wave.open(buf, "wb") as wf:
         wf.setparams(new_params)
-        wf.writeframes(struct.pack(f"<{new_nframes}h", *trimmed_samples))
+        wf.writeframes(struct.pack(f"<{len(trimmed)}h", *trimmed))
     return buf.getvalue()
