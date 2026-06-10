@@ -1,0 +1,14 @@
+{
+  "id": "f5f5d84d012c",
+  "text": "Tsuro aiva nehusimbe, asina munda, asi aida kudya nzungu dzaGudo.",
+  "voice_id": "42cf79d2cb",
+  "references": [
+    {
+      "audio_path": "/mnt/c/Users/Anesu/Documents/GitHub/Higgs-TTS/voices/shona/anesu/reference.wav",
+      "text": "Zuva rangu Muponesi Kuno penya apo muri. Ndirambidzei zvakaipa Zvinozondidzikatira."
+    }
+  ],
+  "file": "2026-06-10/234524-f5f5d84d012c.wav",
+  "elapsed_sec": 3.44,
+  "created_at": 1781099124.0729795
+}

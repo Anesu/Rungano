@@ -16,7 +16,7 @@ const els = {
   voiceSelect: $('voice-select'), btnAddVoice: $('btn-add-voice'),
   btnSynth: $('btn-synth'), btnRestart: $('btn-restart'), btnOutput: $('btn-output'),
   spinnerSynth: $('spinner-synth'),
-  audioPlayer: $('audio-player'), audioWrap: $('audio-wrap'), audioPlaceholder: $('audio-placeholder'), outputState: $('output-state'),
+  audioPlayer: $('audio-player'), audioWrap: $('audio-wrap'), audioPlaceholder: $('audio-placeholder'),
   sentenceList: $('sentence-list'), btnPlayAll: $('btn-play-all'),
   progressWrap: $('progress-wrap'), progressFill: $('progress-fill'), progressText: $('progress-text'),
   dotServer: $('dot-server'), textServer: $('text-server'),
@@ -346,12 +346,12 @@ async function synthesise() {
           state.sentences = Array.from({ length: totalSentences }, (_, i) => ({
             index: i, text: '', chars: 0, status: 'pending',
           }));
-          els.outputState.textContent = `Sentence 0 of ${totalSentences}`;
+          els.progressText.textContent = `Sentence 0 of ${totalSentences}`;
           updateProgress(0, totalSentences);
         } else if (event.type === 'sentence') {
           state.sentences[event.index] = { ...event, status: 'done' };
           doneCount++;
-          els.outputState.textContent = `Sentence ${doneCount} of ${totalSentences}`;
+          els.progressText.textContent = `Sentence ${doneCount} of ${totalSentences}`;
           updateProgress(doneCount, totalSentences);
           renderSentenceList();
           // Auto-play the first sentence as soon as it lands
@@ -368,21 +368,21 @@ async function synthesise() {
           updateProgress(doneCount, totalSentences);
           renderSentenceList();
         } else if (event.type === 'done') {
-          els.outputState.textContent = `${doneCount} sentences · ${event.elapsed_sec.toFixed(0)}s total`;
+          els.progressText.textContent = `${doneCount} sentences · ${event.elapsed_sec.toFixed(0)}s total`;
           toast(`Synthesised ${doneCount} sentences${event.failed ? ` (${event.failed} failed)` : ''}.`);
         }
       }
     }
   } catch (e) {
     if (e.name === 'AbortError') {
-      els.outputState.textContent = 'Cancelled.';
+      els.progressText.textContent = 'Cancelled.';
       toast('Synthesis cancelled.');
       // Mark remaining pending sentences as failed
       state.sentences.forEach(s => { if (s.status === 'pending') s.status = 'failed'; });
       renderSentenceList();
     } else {
       toast(`Synthesis failed: ${e.message}`, true);
-      els.outputState.textContent = 'Error.';
+      els.progressText.textContent = 'Error.';
       state.sentences.forEach(s => { if (s.status !== 'done') s.status = 'failed'; });
       renderSentenceList();
     }
