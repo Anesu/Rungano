@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+server/.venv/
+server/.venv-*/
+server/venv/
+server/venv-*/
+*.egg-info/
+.pytest_cache/
+
+# Node / Electron
+node_modules/
+dist/
+build/
+out/
+*.log
+npm-debug.log*
+
+# Runtime state
+output/*.wav
+output/*.mp3
+output/*.ogg
+output/history/*
+output/voices/*
+!output/voices/.gitkeep
+!output/history/.gitkeep
+
+# Model weights (downloaded by install script)
+models/
+*.safetensors
+*.bin
+*.gguf
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# WSL artefacts
+.wslconfig

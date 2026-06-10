@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: data:; connect-src 'self' http://127.0.0.1:7861 http://127.0.0.1:8000">
+  <title>Rungano</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+
+    <header class="status-bar">
+      <div class="brand">
+        <span class="brand-mark">RUNGANO</span><span class="brand-sub">TTS</span>
+      </div>
+      <div class="status-pill" id="status-server" title="Server status">
+        <span class="dot" id="dot-server"></span>
+        <span class="status-text" id="text-server">Connecting…</span>
+      </div>
+      <div class="status-pill" id="status-sglang" title="SGLang-Omni status">
+        <span class="dot" id="dot-sglang"></span>
+        <span class="status-text" id="text-sglang">Model: unknown</span>
+      </div>
+      <button class="icon-btn" id="btn-restart" title="Restart servers">⟳</button>
+      <button class="icon-btn" id="btn-output" title="Open output folder">📁</button>
+    </header>
+
+    <main class="main">
+      <section class="panel panel-input">
+        <label class="field-label" for="text-input">Text to synthesise</label>
+        <textarea id="text-input" placeholder="Type or paste your text. Use control tags inline for fine control, e.g. <|emotion:amusement|>That was funny. <|sfx:laughter|>Hehe."></textarea>
+        <div class="char-count"><span id="char-count">0</span> chars</div>
+      </section>
+
+      <section class="panel panel-controls">
+        <div class="control-group">
+          <label class="field-label" for="voice-select">Voice</label>
+          <div class="row">
+            <select id="voice-select"><option>Loading…</option></select>
+            <button class="btn btn-sm btn-ghost" id="btn-add-voice" title="Upload a voice reference (10–30s audio + transcript)">+ Clone</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <label class="field-label">Emotion <span class="hint">(optional, single pick)</span></label>
+          <div class="chip-grid" id="emotion-chips" data-category="emotion"></div>
+        </div>
+
+        <div class="control-group">
+          <label class="field-label">Style <span class="hint">(optional, single pick)</span></label>
+          <div class="chip-row" id="style-chips" data-category="style"></div>
+        </div>
+
+        <div class="control-group">
+          <label class="field-label">Prosody <span class="hint">(multi-select)</span></label>
+          <div class="chip-row" id="prosody-chips" data-category="prosody"></div>
+        </div>
+
+        <div class="control-group">
+          <label class="field-label">Sound effects <span class="hint">(multi-select)</span></label>
+          <div class="chip-row" id="sfx-chips" data-category="sfx"></div>
+        </div>
+
+        <details class="advanced">
+          <summary>Advanced</summary>
+          <div class="adv-grid">
+            <label>Temperature<input type="number" id="param-temperature" min="0.1" max="2.0" step="0.05" value="0.8"></label>
+            <label>Top-k<input type="number" id="param-topk" min="1" max="200" step="1" value="50"></label>
+            <label>Max new tokens<input type="number" id="param-maxtok" min="64" max="8192" step="64" value="4096"></label>
+          </div>
+        </details>
+
+        <div class="actions">
+          <button class="btn btn-primary" id="btn-synth">
+            <span class="spinner" id="spinner-synth" hidden></span>
+            <span class="btn-label">Synthesise</span>
+          </button>
+          <span class="muted" id="elapsed-text"></span>
+        </div>
+      </section>
+
+      <section class="panel panel-output">
+        <div class="output-head">
+          <label class="field-label">Output</label>
+          <span class="muted" id="output-state">No audio yet.</span>
+        </div>
+        <div class="audio-wrap">
+          <audio id="audio-player" controls preload="auto"></audio>
+        </div>
+        <div class="history-head">
+          <span class="field-label">History</span>
+          <button class="btn btn-sm btn-ghost" id="btn-refresh-history">Refresh</button>
+        </div>
+        <ul class="history-list" id="history-list"></ul>
+      </section>
+    </main>
+
+    <!-- Voice Clone Modal -->
+    <div class="modal" id="clone-modal" hidden>
+      <div class="modal-card">
+        <h3>Clone a voice</h3>
+        <p class="muted">Upload 10–30 seconds of clean reference audio plus a transcript of what is said. The model uses this to clone the speaker's voice.</p>
+        <label class="field-label">Name</label>
+        <input type="text" id="clone-name" placeholder="e.g. Adam — male, English">
+        <label class="field-label">Reference audio (.wav / .mp3 / .flac)</label>
+        <input type="file" id="clone-audio" accept="audio/*">
+        <label class="field-label">Transcript <span class="hint">(what the reference audio actually says)</span></label>
+        <textarea id="clone-transcript" rows="3" placeholder="Type the exact words spoken in the reference audio."></textarea>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="btn-clone-cancel">Cancel</button>
+          <button class="btn btn-primary" id="btn-clone-save">Save voice</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" hidden></div>
+
+  </div>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>
