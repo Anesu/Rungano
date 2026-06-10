@@ -27,72 +27,69 @@
     </header>
 
     <main class="main">
+      <!-- LEFT: Input + Controls -->
       <section class="panel panel-input">
         <label class="field-label" for="text-input">Text to synthesise</label>
-        <textarea id="text-input" placeholder="Type or paste your text. Use control tags inline for fine control, e.g. <|emotion:amusement|>That was funny. <|sfx:laughter|>Hehe."></textarea>
+        <textarea id="text-input" placeholder="Type or paste your text. Each sentence will be synthesized individually for best quality."></textarea>
         <div class="char-count"><span id="char-count">0</span> chars</div>
-      </section>
 
-      <section class="panel panel-controls">
-        <div class="control-group">
-          <label class="field-label" for="voice-select">Voice</label>
-          <div class="row">
-            <select id="voice-select"><option>Loading…</option></select>
-            <button class="btn btn-sm btn-ghost" id="btn-add-voice" title="Upload a voice reference (10–30s audio + transcript)">+ Clone</button>
+        <div class="voice-row">
+          <div class="control-group" style="flex:1">
+            <label class="field-label" for="voice-select">Voice</label>
+            <div class="row">
+              <select id="voice-select"><option>Loading…</option></select>
+              <button class="btn btn-sm btn-ghost" id="btn-add-voice" title="Upload a voice reference">+ Clone</button>
+            </div>
           </div>
         </div>
 
-        <div class="control-group">
-          <label class="field-label">Emotion <span class="hint">(optional, single pick)</span></label>
-          <div class="chip-grid" id="emotion-chips" data-category="emotion"></div>
-        </div>
-
-        <div class="control-group">
-          <label class="field-label">Style <span class="hint">(optional, single pick)</span></label>
-          <div class="chip-row" id="style-chips" data-category="style"></div>
-        </div>
-
-        <div class="control-group">
-          <label class="field-label">Prosody <span class="hint">(multi-select)</span></label>
-          <div class="chip-row" id="prosody-chips" data-category="prosody"></div>
-        </div>
-
-        <div class="control-group">
-          <label class="field-label">Sound effects <span class="hint">(multi-select)</span></label>
-          <div class="chip-row" id="sfx-chips" data-category="sfx"></div>
-        </div>
-
         <details class="advanced">
-          <summary>Advanced</summary>
-          <div class="adv-grid">
-            <label>Temperature<input type="number" id="param-temperature" min="0.1" max="2.0" step="0.05" value="0.8"></label>
-            <label>Top-k<input type="number" id="param-topk" min="1" max="200" step="1" value="50"></label>
-            <label>Max new tokens<input type="number" id="param-maxtok" min="64" max="8192" step="64" value="4096"></label>
+          <summary>Emotion, Style &amp; Effects</summary>
+          <div class="control-group">
+            <label class="field-label">Emotion</label>
+            <div class="chip-grid" id="emotion-chips" data-category="emotion"></div>
+          </div>
+          <div class="control-group">
+            <label class="field-label">Style</label>
+            <div class="chip-row" id="style-chips" data-category="style"></div>
+          </div>
+          <div class="control-group">
+            <label class="field-label">Prosody</label>
+            <div class="chip-row" id="prosody-chips" data-category="prosody"></div>
+          </div>
+          <div class="control-group">
+            <label class="field-label">Sound effects</label>
+            <div class="chip-row" id="sfx-chips" data-category="sfx"></div>
           </div>
         </details>
 
         <div class="actions">
           <button class="btn btn-primary" id="btn-synth">
             <span class="spinner" id="spinner-synth" hidden></span>
-            <span class="btn-label">Synthesise</span>
+            <span class="btn-label">Synthesise All</span>
           </button>
-          <span class="muted" id="elapsed-text"></span>
+          <div class="progress-wrap" id="progress-wrap" hidden>
+            <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+            <span class="muted" id="progress-text"></span>
+          </div>
         </div>
       </section>
 
+      <!-- RIGHT: Playlist / Output -->
       <section class="panel panel-output">
         <div class="output-head">
-          <label class="field-label">Output</label>
-          <span class="muted" id="output-state">No audio yet.</span>
+          <span class="field-label">Playlist</span>
+          <div class="row">
+            <button class="btn btn-sm btn-ghost" id="btn-play-all" hidden title="Play all sentences in order">▶ Play All</button>
+            <span class="muted" id="output-state">No sentences yet.</span>
+          </div>
         </div>
+
         <div class="audio-wrap">
           <audio id="audio-player" controls preload="auto"></audio>
         </div>
-        <div class="history-head">
-          <span class="field-label">History</span>
-          <button class="btn btn-sm btn-ghost" id="btn-refresh-history">Refresh</button>
-        </div>
-        <ul class="history-list" id="history-list"></ul>
+
+        <ul class="sentence-list" id="sentence-list"></ul>
       </section>
     </main>
 
@@ -100,12 +97,12 @@
     <div class="modal" id="clone-modal" hidden>
       <div class="modal-card">
         <h3>Clone a voice</h3>
-        <p class="muted">Upload 10–30 seconds of clean reference audio plus a transcript of what is said. The model uses this to clone the speaker's voice.</p>
+        <p class="muted">Upload 10–30 seconds of clean reference audio plus a transcript.</p>
         <label class="field-label">Name</label>
         <input type="text" id="clone-name" placeholder="e.g. Adam — male, English">
         <label class="field-label">Reference audio (.wav / .mp3 / .flac)</label>
         <input type="file" id="clone-audio" accept="audio/*">
-        <label class="field-label">Transcript <span class="hint">(what the reference audio actually says)</span></label>
+        <label class="field-label">Transcript</label>
         <textarea id="clone-transcript" rows="3" placeholder="Type the exact words spoken in the reference audio."></textarea>
         <div class="modal-actions">
           <button class="btn btn-ghost" id="btn-clone-cancel">Cancel</button>
@@ -115,7 +112,6 @@
     </div>
 
     <div class="toast" id="toast" hidden></div>
-
   </div>
 
   <script src="app.js" type="module"></script>

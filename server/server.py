@@ -244,17 +244,17 @@ def _trim_trailing_quiet(wav_bytes: bytes, abs_threshold: int = 100, pad_sec: fl
     return buf.getvalue()
 
 
-# ── TTS (long / chunked) ─────────────────────────────────
-@app.route("/api/tts/long", methods=["POST"])
-def api_tts_long():
-    try:
-        return _api_tts_long_impl()
-    except Exception as e:
-        logger.exception("Long TTS crashed")
-        return jsonify({"error": str(e)}), 500
+# ── TTS (batch / sentence-by-sentence) ────────────────────
+# The Higgs model performs best on short utterances (it was designed for voice
+# chat, not long-form narration). We work WITH this: split text into sentences,
+# synthesize each independently with generous token budgets, and save individual
+# WAV files. No trimming, no crossfading, no concatenation — each sentence
+# stands alone, clean and complete.
+#
+# The renderer queues sentences sequentially and plays them as a playlist.
 
-
-def _api_tts_long_impl():
+@app.route("/api/tts/batch", methods=["POST"])
+def api_tts_batch():
     data = request.get_json(force=True)
     text = (data.get("text") or "").strip()
     if not text:
@@ -265,46 +265,61 @@ def _api_tts_long_impl():
     temperature = float(data.get("temperature", 0.8))
     top_k = int(data.get("top_k", 50))
     volume = float(data.get("volume", 1.8))
-    chunk_size = int(data.get("chunk_size", 200))
 
+    # Resolve voice reference once (reused for every sentence)
     if references is None and voice_id:
         voice = get_voice_catalog().resolve(voice_id)
         if voice and voice.get("kind") == "custom":
             references = [{"audio_path": _wsl_path(voice.get("audio_path", "")), "text": voice.get("transcript", "")}]
 
-    chunks = _split_sentences(text, max_chunk=chunk_size)
-    logger.info("Long TTS: %d chunks for %d chars (max %d/chunk)", len(chunks), len(text), chunk_size)
-
-    # v2 token budget — known to work best
-    def _tok_budget(chars):
-        return min(4096, max(768, int(len(chars) / 8 * 50 * 2.0)))
+    # Split into individual sentences — every sentence gets its own clean generation.
+    # max_chunk=999999 ensures we split on every sentence boundary.
+    sentences = _split_sentences(text, max_chunk=999999)
+    logger.info("Batch TTS: %d sentences for %d chars", len(sentences), len(text))
 
     t0 = time.time()
     tts = get_tts()
-    wavs: list[bytes] = []
-    for i, chunk in enumerate(chunks):
-        tok = _tok_budget(chunk)
-        logger.info("  Chunk %d/%d: %d chars -> max %d tokens", i + 1, len(chunks), len(chunk), tok)
+    results: list[dict] = []
+    failed = 0
+
+    for i, sentence in enumerate(sentences):
+        entry_id = uuid.uuid4().hex[:12]
+        out_path = HISTORY_DIR / f"{entry_id}.wav"
         try:
-            raw = tts.synthesize(text=chunk, references=references, temperature=temperature, top_k=top_k, max_new_tokens=tok)
+            t_start = time.time()
+            raw = tts.synthesize(
+                text=sentence,
+                references=references,
+                temperature=temperature,
+                top_k=top_k,
+                max_new_tokens=2048,  # single sentence — 40s is more than enough
+            )
             boosted = apply_gain(raw, gain=volume)
-            # No trimming — it eats words unpredictably depending on model output variance.
-            # The 100ms gap between chunks provides clean separation.
-            wavs.append(boosted)
+            out_path.write_bytes(boosted)
+            elapsed = time.time() - t_start
+            results.append({
+                "index": i,
+                "text": sentence[:120] + ("..." if len(sentence) > 120 else ""),
+                "chars": len(sentence),
+                "file": f"/audio/history/{entry_id}.wav",
+                "elapsed_sec": round(elapsed, 2),
+                "bytes": len(boosted),
+            })
+            _save_history_entry(entry_id, text=sentence, voice_id=voice_id, references=references, file_path=out_path, elapsed_sec=elapsed)
+            logger.info("  Sentence %d/%d: %d chars -> %.1fs, %d bytes", i + 1, len(sentences), len(sentence), elapsed, len(boosted))
         except Exception as e:
-            logger.error("Chunk %d failed: %s", i + 1, e)
+            logger.error("Sentence %d failed: %s", i + 1, e)
+            failed += 1
             continue
 
-    if not wavs:
-        return jsonify({"error": "All chunks failed — SGLang-Omni may be down"}), 500
-
-    combined = concat_wavs(wavs, crossfade_ms=0, gap_ms=100)
-    entry_id = uuid.uuid4().hex[:12]
-    out_path = HISTORY_DIR / f"{entry_id}.wav"
-    out_path.write_bytes(combined)
-    elapsed = time.time() - t0
-    _save_history_entry(entry_id, text=f"[long:{len(chunks)} chunks] {text[:80]}...", voice_id=voice_id, references=references, file_path=out_path, elapsed_sec=elapsed)
-    return jsonify({"id": entry_id, "file": f"/audio/history/{entry_id}.wav", "elapsed_sec": round(elapsed, 2), "bytes": len(combined), "chunks": len(chunks), "failed": len(chunks) - len(wavs), "volume_applied": volume})
+    total_elapsed = time.time() - t0
+    return jsonify({
+        "sentences": results,
+        "total": len(sentences),
+        "failed": failed,
+        "elapsed_sec": round(total_elapsed, 2),
+        "volume_applied": volume,
+    })
 
 # ── OpenAI passthrough ───────────────────────────────────
 @app.route("/v1/audio/speech", methods=["POST"])
