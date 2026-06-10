@@ -449,24 +449,41 @@ def _migrate_legacy():
     logger.info("Running v2 migration...")
     # Migrate history
     if legacy_history.exists():
+        migrated = 0
         for f in legacy_history.iterdir():
             if not f.is_file(): continue
-            mtime = time.strftime("%Y-%m-%d", time.localtime(f.stat().st_mtime))
-            dest = OUTPUT_DIR / mtime
-            dest.mkdir(parents=True, exist_ok=True)
-            prefix = time.strftime("%H%M%S", time.localtime(f.stat().st_mtime))
-            new_name = f"{prefix}-{f.name}"
-            shutil.move(str(f), str(dest / new_name))
-        shutil.rmtree(legacy_history, ignore_errors=True)
-        logger.info("  Migrated history/ → date directories")
-    # Migrate voices (just move the whole tree)
+            try:
+                mtime = time.strftime("%Y-%m-%d", time.localtime(f.stat().st_mtime))
+                dest = OUTPUT_DIR / mtime
+                dest.mkdir(parents=True, exist_ok=True)
+                prefix = time.strftime("%H%M%S", time.localtime(f.stat().st_mtime))
+                new_name = f"{prefix}-{f.name}"
+                shutil.copy2(str(f), str(dest / new_name))  # copy then unlink, safer on Windows
+                f.unlink()
+                migrated += 1
+            except Exception as exc:
+                logger.warning("  Skipping %s: %s", f.name, exc)
+        try:
+            legacy_history.rmdir()  # only removes if empty
+        except Exception:
+            pass
+        logger.info("  Migrated %d history files → date directories", migrated)
+    # Migrate voices
     if legacy_voices.exists():
+        moved = 0
         for item in legacy_voices.iterdir():
-            dest = VOICES_DIR / item.name
-            if not dest.exists():
-                shutil.move(str(item), str(dest))
-        shutil.rmtree(legacy_voices, ignore_errors=True)
-        logger.info("  Migrated output/voices/ → voices/")
+            try:
+                dest = VOICES_DIR / item.name
+                if not dest.exists():
+                    shutil.move(str(item), str(dest))
+                    moved += 1
+            except Exception as exc:
+                logger.warning("  Skipping voices/%s: %s", item.name, exc)
+        try:
+            legacy_voices.rmdir()
+        except Exception:
+            pass
+        logger.info("  Moved %d voice directories → voices/", moved)
     marker.touch()
     logger.info("Migration complete.")
 
