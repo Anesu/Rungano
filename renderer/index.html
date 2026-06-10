@@ -15,22 +15,11 @@
       <div class="brand">
         <span class="brand-mark">RUNGANO</span><span class="brand-sub">TTS</span>
       </div>
-      <div class="status-pill" title="Server">
-        <span class="dot" id="dot-server"></span>
-        <span class="status-text" id="text-server">Connecting…</span>
-      </div>
-      <div class="status-pill vram-pill" title="GPU VRAM">
-        <span class="dot" id="dot-sglang"></span>
-        <span class="status-text" id="text-sglang">Model: unknown</span>
-        <div class="vram-gauge-wrap" id="vram-gauge-wrap" hidden>
-          <div class="vram-gauge"><div class="vram-fill" id="vram-fill"></div></div>
-          <span class="vram-label" id="vram-label"></span>
-        </div>
+      <div class="status-pill" id="status-pill" title="System status">
+        <span class="dot" id="dot-status"></span>
+        <span class="status-text" id="text-status">Connecting…</span>
       </div>
       <button class="icon-btn" id="btn-info" title="Help">ℹ</button>
-      <button class="icon-btn" id="btn-settings" title="Model settings">⚙</button>
-      <button class="icon-btn" id="btn-theme" title="Toggle theme">☀</button>
-      <button class="icon-btn" id="btn-restart" title="Restart servers">⟳</button>
     </header>
 
     <!-- ═══ Main 2-column ════════════════════════════════════════════ -->
@@ -63,13 +52,11 @@
         <!-- ═══ Configuration section ═══════════════════════════════ -->
         <div class="output-section">
 
-          <!-- Voice Card -->
+          <!-- Voice Card — compact -->
           <div class="voice-card" id="voice-card">
             <div class="voice-card-badges" id="voice-card-badges" hidden>
               <span class="badge badge-lang" id="voice-lang"></span>
-              <span class="badge badge-kind" id="voice-kind"></span>
             </div>
-            <div class="voice-card-transcript" id="voice-transcript"></div>
           </div>
 
           <!-- Effects -->
@@ -105,15 +92,17 @@
             <div class="recent-list" id="recent-list"></div>
           </div>
 
+          <!-- Actions toolbar -->
+          <div class="actions-bar" id="actions-bar">
+            <button class="btn btn-sm btn-ghost" id="btn-play-all" hidden>▶ Play All</button>
+            <button class="btn btn-sm btn-ghost" id="btn-export-wav" hidden title="Download all as one WAV">⬇ WAV</button>
+            <button class="btn btn-sm btn-ghost" id="btn-save-m3u" hidden title="Save .m3u playlist">📋 .m3u</button>
+            <button class="btn btn-sm btn-ghost" id="btn-output" title="Open output folder">📁</button>
+          </div>
+
           <!-- Playlist toolbar -->
           <div class="playlist-toolbar">
             <span class="field-label">Playlist</span>
-            <div class="playlist-actions">
-              <button class="btn btn-sm btn-ghost" id="btn-play-all" hidden>▶ Play All</button>
-              <button class="btn btn-sm btn-ghost" id="btn-export-wav" hidden title="Export all sentences as a single WAV">⬇ WAV</button>
-              <button class="btn btn-sm btn-ghost" id="btn-save-m3u" hidden title="Save .m3u playlist for VLC">📋 .m3u</button>
-              <button class="btn btn-sm btn-ghost" id="btn-output" title="Open output folder">📁</button>
-            </div>
           </div>
 
           <!-- Audio -->
@@ -131,10 +120,21 @@
     <!-- ═══ Help tooltip ═══════════════════════════════════════════ -->
     <div class="tooltip-panel" id="tooltip-panel" hidden>
       <div class="tooltip-content">
+        <div class="tooltip-actions">
+          <button class="btn btn-sm btn-ghost" id="btn-settings" title="Model settings">⚙ Settings</button>
+          <button class="btn btn-sm btn-ghost" id="btn-theme" title="Toggle theme">☀ Theme</button>
+          <button class="btn btn-sm btn-ghost" id="btn-restart" title="Restart servers">⟳ Restart</button>
+        </div>
+        <hr>
         <p><kbd>Ctrl+Enter</kbd> Synthesise</p>
         <p><kbd>Space</kbd> Play / Pause</p>
         <p><kbd>← →</kbd> Previous / Next sentence</p>
         <p><kbd>Esc</kbd> Stop playback or cancel synthesis</p>
+        <hr>
+        <div id="tooltip-detail">
+          <p class="muted">Model: —</p>
+          <p class="muted">VRAM: —</p>
+        </div>
         <hr>
         <p class="muted">Drag .txt files into the text area.</p>
         <p class="muted">Use ⚙ to adjust temperature and other model parameters.</p>

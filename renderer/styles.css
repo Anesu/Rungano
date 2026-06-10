@@ -86,6 +86,7 @@ input, textarea { user-select: text; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-2); transition: background 0.3s; }
 .dot.ok { background: var(--good); box-shadow: 0 0 5px var(--good-bg); }
 .dot.bad { background: var(--bad); }
+.dot.warn { background: var(--warn); }
 .icon-btn {
   background: transparent; border: 1px solid transparent;
   color: var(--text-1); cursor: pointer; padding: 3px 7px;
@@ -224,7 +225,22 @@ input, textarea { user-select: text; }
   display: flex; justify-content: space-between; align-items: center;
   margin-bottom: 6px; flex-shrink: 0;
 }
-.playlist-actions { display: flex; gap: 4px; }
+/* ═══ Actions bar ═══════════════════════════════════════════════════ */
+.actions-bar {
+  display: flex; gap: 4px;
+  padding: 6px 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+
+/* ═══ Tooltip actions ═══════════════════════════════════════════════ */
+.tooltip-actions {
+  display: flex; gap: 4px; margin-bottom: 4px;
+}
+.tooltip-actions .btn { font-size: 11px; padding: 3px 8px; }
 
 /* ═══ Voice Card ═════════════════════════════════════════════════════ */
 .voice-card {

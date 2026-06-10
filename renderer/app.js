@@ -19,19 +19,16 @@ const els = {
   audioPlayer: $('audio-player'), audioWrap: $('audio-wrap'), audioPlaceholder: $('audio-placeholder'),
   sentenceList: $('sentence-list'), btnPlayAll: $('btn-play-all'),
   progressWrap: $('progress-wrap'), progressFill: $('progress-fill'), progressText: $('progress-text'),
-  dotServer: $('dot-server'), textServer: $('text-server'),
-  dotSglang: $('dot-sglang'), textSglang: $('text-sglang'),
+  dotStatus: $('dot-status'), textStatus: $('text-status'),
   emotionChips: $('emotion-chips'), styleChips: $('style-chips'),
   prosodyChips: $('prosody-chips'), sfxChips: $('sfx-chips'),
   cloneModal: $('clone-modal'), cloneName: $('clone-name'), cloneLanguage: $('clone-language'), cloneAudio: $('clone-audio'),
   cloneTranscript: $('clone-transcript'), btnCloneCancel: $('btn-clone-cancel'), btnCloneSave: $('btn-clone-save'),
   toast: $('toast'),
   // Layout
-  voiceCardBadges: $('voice-card-badges'), voiceLang: $('voice-lang'), voiceKind: $('voice-kind'),
-  voiceTranscript: $('voice-transcript'),
+  voiceCardBadges: $('voice-card-badges'), voiceLang: $('voice-lang'),
   settingsSummary: $('settings-summary'),
   recentSection: $('recent-section'), recentList: $('recent-list'), btnClearHistory: $('btn-clear-history'),
-  vramGaugeWrap: $('vram-gauge-wrap'), vramFill: $('vram-fill'), vramLabel: $('vram-label'),
   emotionCount: $('emotion-count'), styleCount: $('style-count'),
   prosodyCount: $('prosody-count'), sfxCount: $('sfx-count'),
   // Settings modal
@@ -156,7 +153,7 @@ async function loadVoices() {
   try {
     const { voices } = await api('/api/voices');
     state.voices = voices; els.voiceSelect.innerHTML = '';
-    for (const v of voices) { const opt = document.createElement('option'); opt.value = v.id; opt.textContent = `${v.name}${v.kind === 'custom' ? '  •  custom' : ''}`; els.voiceSelect.appendChild(opt); }
+    for (const v of voices) { const opt = document.createElement('option'); opt.value = v.id; opt.textContent = v.name; els.voiceSelect.appendChild(opt); }
     if (voices.length && !voices.find(v => v.id === state.selectedVoice)) state.selectedVoice = voices[0].id;
     // Apply saved default voice preference
     const defaultVoice = localStorage.getItem('rungano-default-voice');
@@ -168,15 +165,11 @@ async function loadVoices() {
 
 function updateVoiceCard() {
   const voice = state.voices.find(v => v.id === state.selectedVoice);
-  if (!voice) { els.voiceCardBadges.hidden = true; els.voiceTranscript.textContent = ''; return; }
-  els.voiceCardBadges.hidden = false;
-  // Language badge
+  if (!voice) { els.voiceCardBadges.hidden = true; return; }
   const lang = voice.language || (voice.kind === 'custom' ? 'unknown' : 'any');
+  if (lang === 'any') { els.voiceCardBadges.hidden = true; return; }
+  els.voiceCardBadges.hidden = false;
   els.voiceLang.textContent = lang;
-  els.voiceLang.style.display = '';
-  // Kind badge
-  els.voiceKind.textContent = voice.kind || 'preset';
-  els.voiceTranscript.textContent = (voice.transcript || 'No reference transcript').slice(0, 100);
 }
 
 // ── Sentence playlist ─────────────────────────────────────────────────
@@ -420,44 +413,45 @@ function updateProgress(done, total) {
   if (done >= total) setTimeout(() => { els.progressWrap.hidden = true; }, 3000);
 }
 
-// ── Health (IPC-driven from Electron main process) ─────────────────────
-// The main process polls Flask + SGLang every 10s and pushes results via
-// the higgs:health IPC event. The renderer is a pure consumer — no duplicate
-// HTTP polling, no hardcoded interval. In dev/browser mode (no window.higgs),
-// the UI stays at "Connecting…" which is correct for a desktop-only app.
+// ── Health (IPC-driven) ────────────────────────────────────────────────
+// Traffic-light status for the user. Technical details (VRAM, model name)
+// are shown in the ℹ tooltip, not in the status bar.
 
+let _lastGpu = {};
 function updateHealthUI(flaskReady, sglangReady, flaskBody) {
-  if (flaskReady) {
-    els.dotServer.className = 'dot ok'; els.textServer.textContent = 'Flask: ready';
+  const gpu = flaskBody?.gpu || {};
+  _lastGpu = gpu;
+  if (!flaskReady) {
+    els.dotStatus.className = 'dot bad';
+    els.textStatus.textContent = 'Offline';
+  } else if (!sglangReady) {
+    els.dotStatus.className = 'dot warn';
+    els.textStatus.textContent = 'Loading model…';
   } else {
-    els.dotServer.className = 'dot bad'; els.textServer.textContent = 'Flask: down';
-  }
-  if (sglangReady) {
-    els.dotSglang.className = 'dot ok';
-    const models = flaskBody?.sglang_models || [];
-    const gpu = flaskBody?.gpu || {};
-    const modelName = models[0] ? models[0].split('/').pop() : 'ready';
-    els.textSglang.textContent = modelName;
-    // VRAM gauge
-    if (gpu.vram_total_mb) {
-      els.vramGaugeWrap.hidden = false;
-      const freeGB = gpu.vram_free_mb / 1024;
-      const pct = (gpu.vram_free_mb / gpu.vram_total_mb) * 100;
-      els.vramFill.style.width = `${pct}%`;
-      els.vramLabel.textContent = `${freeGB.toFixed(1)}GB`;
-      if (freeGB > 2) els.vramFill.style.background = 'var(--vram-green)';
-      else if (freeGB > 1) els.vramFill.style.background = 'var(--vram-yellow)';
-      else els.vramFill.style.background = 'var(--vram-red)';
-    }
+    els.dotStatus.className = 'dot ok';
+    const freeGB = gpu.vram_free_mb ? (gpu.vram_free_mb / 1024).toFixed(1) : '?';
+    els.textStatus.textContent = `Ready`;
     if (!state.sglangReady) {
       state.sglangReady = true;
       initChips();
     }
-  } else {
-    els.dotSglang.className = 'dot bad'; els.textSglang.textContent = 'Model: not ready';
-    els.vramGaugeWrap.hidden = true;
-    state.sglangReady = false;
   }
+  // Update tooltip detail
+  _updateTooltipDetail(flaskReady, sglangReady, flaskBody);
+}
+
+function _updateTooltipDetail(flaskReady, sglangReady, flaskBody) {
+  const detail = document.getElementById('tooltip-detail');
+  if (!detail) return;
+  const models = flaskBody?.sglang_models || [];
+  const gpu = flaskBody?.gpu || {};
+  const modelName = models[0] ? models[0].split('/').pop() : '—';
+  const freeGB = gpu.vram_free_mb ? (gpu.vram_free_mb / 1024).toFixed(1) : '?';
+  detail.innerHTML = `
+    <p class="muted">Model: ${modelName}</p>
+    <p class="muted">VRAM free: ${freeGB} GB / ${(gpu.vram_total_mb/1024).toFixed(0)} GB</p>
+    <p class="muted">GPU: ${gpu.name || '—'}</p>
+  `;
 }
 
 function startHealthListening() {
