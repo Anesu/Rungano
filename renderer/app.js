@@ -33,9 +33,10 @@ const state = {
   voices: [], selectedVoice: "default",
   emotion: null, style: null, prosody: new Set(), sfx: new Map(),
   sglangReady: false,
-  flaskUrl: 'http://127.0.0.1:7861',  // overridden by IPC getConfig() if available
-  sentences: [],  // { index, text, file, elapsed_sec, bytes, status: 'pending'|'running'|'done'|'failed' }
+  flaskUrl: 'http://127.0.0.1:7861',
+  sentences: [],
   playbackIndex: -1,
+  _abortController: null,
 };
 
 // ── API ────────────────────────────────────────────────────────────────
@@ -162,13 +163,17 @@ function highlightCurrentSentence() {
   }
 }
 
-// ── Synthesise batch ──────────────────────────────────────────────────
+// ── Synthesise (streaming SSE) ─────────────────────────────────────────
+// The /api/tts/batch/stream endpoint pushes each sentence as it completes.
+// The renderer renders them progressively — no 90-second spinner.
+// An AbortController lets the user cancel mid-batch.
+
 function buildControlsPayload() {
   const ctrl = {};
   if (state.emotion) ctrl.emotion = state.emotion;
   if (state.style) ctrl.style = state.style;
   if (state.prosody.size) ctrl.prosody = [...state.prosody];
-  if (state.sfx.size) ctrl.sfx = [...state.sfx.entries()];  // [[token, ono], ...]
+  if (state.sfx.size) ctrl.sfx = [...state.sfx.entries()];
   return Object.keys(ctrl).length ? ctrl : undefined;
 }
 
@@ -176,34 +181,112 @@ async function synthesise() {
   const text = els.textInput.value.trim();
   if (!text) { toast('Type some text first.', true); return; }
 
-  els.btnSynth.disabled = true; els.spinnerSynth.hidden = false;
-  els.progressWrap.hidden = false; els.outputState.textContent = 'Starting…';
+  _enterSynthesisingState();
   state.sentences = [];
+  state.playbackIndex = -1;
   renderSentenceList();
 
+  const body = { text, voice_id: state.selectedVoice, volume: 1.8 };
+  const controls = buildControlsPayload();
+  if (controls) body.controls = controls;
+
+  const controller = new AbortController();
+  state._abortController = controller;
+
   try {
-    const body = { text, voice_id: state.selectedVoice, volume: 1.8 };
-    const controls = buildControlsPayload();
-    if (controls) body.controls = controls;
+    const res = await fetch(`${state.flaskUrl}/api/tts/batch/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
 
-    const result = await api('/api/tts/batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || res.statusText);
+    }
 
-    state.sentences = result.sentences.map(s => ({ ...s, status: 'done' }));
-    const done = result.sentences.length;
-    const total = result.total;
-    const failed = result.failed;
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let totalSentences = 0;
+    let doneCount = 0;
 
-    updateProgress(done, done + failed);
-    els.outputState.textContent = `${done} sentences · ${(result.elapsed_sec).toFixed(0)}s total`;
-    toast(`Synthesised ${done} sentences${failed ? ` (${failed} failed)` : ''}.`);
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const event = JSON.parse(line.slice(6));
+
+        if (event.type === 'start') {
+          totalSentences = event.total;
+          state.sentences = Array.from({ length: totalSentences }, (_, i) => ({
+            index: i, text: '', chars: 0, status: 'pending',
+          }));
+          els.outputState.textContent = `Sentence 0 of ${totalSentences}`;
+          updateProgress(0, totalSentences);
+        } else if (event.type === 'sentence') {
+          state.sentences[event.index] = { ...event, status: 'done' };
+          doneCount++;
+          els.outputState.textContent = `Sentence ${doneCount} of ${totalSentences}`;
+          updateProgress(doneCount, totalSentences);
+          renderSentenceList();
+          // Auto-play the first sentence as soon as it lands
+          if (doneCount === 1) playSentence(0);
+        } else if (event.type === 'error') {
+          state.sentences[event.index] = {
+            ...state.sentences[event.index], status: 'failed',
+          };
+          doneCount++;
+          updateProgress(doneCount, totalSentences);
+          renderSentenceList();
+        } else if (event.type === 'done') {
+          els.outputState.textContent = `${doneCount} sentences · ${event.elapsed_sec.toFixed(0)}s total`;
+          toast(`Synthesised ${doneCount} sentences${event.failed ? ` (${event.failed} failed)` : ''}.`);
+        }
+      }
+    }
   } catch (e) {
-    toast(`Synthesis failed: ${e.message}`, true);
-    els.outputState.textContent = 'Error.';
-    state.sentences.forEach(s => { if (s.status !== 'done') s.status = 'failed'; });
+    if (e.name === 'AbortError') {
+      els.outputState.textContent = 'Cancelled.';
+      toast('Synthesis cancelled.');
+      // Mark remaining pending sentences as failed
+      state.sentences.forEach(s => { if (s.status === 'pending') s.status = 'failed'; });
+      renderSentenceList();
+    } else {
+      toast(`Synthesis failed: ${e.message}`, true);
+      els.outputState.textContent = 'Error.';
+      state.sentences.forEach(s => { if (s.status !== 'done') s.status = 'failed'; });
+      renderSentenceList();
+    }
   } finally {
-    els.btnSynth.disabled = false; els.spinnerSynth.hidden = true;
-    renderSentenceList();
+    _leaveSynthesisingState();
+    state._abortController = null;
+  }
+}
+
+function _enterSynthesisingState() {
+  els.btnSynth.textContent = 'Cancel';
+  els.btnSynth.classList.add('btn-danger');
+  els.spinnerSynth.hidden = false;
+  els.progressWrap.hidden = false;
+}
+
+function _leaveSynthesisingState() {
+  els.btnSynth.textContent = 'Synthesise All';
+  els.btnSynth.classList.remove('btn-danger');
+  els.spinnerSynth.hidden = true;
+}
+
+function cancelSynthesis() {
+  if (state._abortController) {
+    state._abortController.abort();
   }
 }
 
@@ -211,7 +294,7 @@ function updateProgress(done, total) {
   const pct = total > 0 ? (done / total * 100) : 0;
   els.progressFill.style.width = `${pct}%`;
   els.progressText.textContent = `${done} / ${total}`;
-  if (done >= total) setTimeout(() => { els.progressWrap.hidden = true; }, 2000);
+  if (done >= total) setTimeout(() => { els.progressWrap.hidden = true; }, 3000);
 }
 
 // ── Health (IPC-driven from Electron main process) ─────────────────────
@@ -286,7 +369,10 @@ async function init() {
 
   els.textInput.addEventListener('input', () => { els.charCount.textContent = els.textInput.value.length; });
   els.voiceSelect.addEventListener('change', () => { state.selectedVoice = els.voiceSelect.value; });
-  els.btnSynth.addEventListener('click', synthesise);
+  els.btnSynth.addEventListener('click', () => {
+    if (state._abortController) { cancelSynthesis(); }
+    else { synthesise(); }
+  });
   els.btnAddVoice.addEventListener('click', openCloneModal);
   els.btnCloneCancel.addEventListener('click', closeCloneModal);
   els.btnCloneSave.addEventListener('click', saveClone);

@@ -18,6 +18,7 @@ Sits between the Electron renderer and SGLang-Omni. Provides:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import threading
@@ -287,6 +288,89 @@ def api_tts_batch():
         "elapsed_sec": round(total_elapsed, 2),
         "volume_applied": volume,
     })
+
+# ── TTS (batch / streaming SSE) ───────────────────────────
+# Progressive delivery via Server-Sent Events. Each sentence completion
+# pushes an event to the renderer so the playlist builds in real time.
+# The client sees "Sentence 3 of 12" instead of a 90-second spinner.
+
+@app.route("/api/tts/batch/stream", methods=["POST"])
+def api_tts_batch_stream():
+    data = request.get_json(force=True)
+    text = (data.get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "Field 'text' is required"}), 400
+
+    voice_id = data.get("voice_id")
+    references = data.get("references")
+    temperature = float(data.get("temperature", 0.8))
+    top_k = int(data.get("top_k", 50))
+    volume = float(data.get("volume", 1.8))
+    controls = data.get("controls") or {}
+
+    references = _resolve_references(references, voice_id)
+    sentences = get_text_chunker().chunk(text)
+    total = len(sentences)
+    logger.info("Streaming TTS: %d sentences for %d chars", total, len(text))
+
+    def generate():
+        t0 = time.time()
+        tts = get_tts()
+        failed = 0
+
+        # Initial event: total sentence count so the client can pre-allocate the playlist
+        yield f"data: {json.dumps({'type': 'start', 'total': total})}\n\n"
+
+        for i, sentence in enumerate(sentences):
+            tagged = _apply_controls(sentence, controls)
+            entry_id = uuid.uuid4().hex[:12]
+            out_path = HISTORY_DIR / f"{entry_id}.wav"
+            try:
+                t_start = time.time()
+                raw = tts.synthesize(
+                    text=tagged,
+                    references=references,
+                    temperature=temperature,
+                    top_k=top_k,
+                    max_new_tokens=2048,
+                )
+                boosted = apply_gain(raw, gain=volume)
+                out_path.write_bytes(boosted)
+                elapsed = time.time() - t_start
+
+                get_history().save(
+                    entry_id=entry_id, text=sentence, voice_id=voice_id,
+                    references=references, file_path=out_path, elapsed_sec=elapsed,
+                )
+
+                event = {
+                    "type": "sentence",
+                    "index": i,
+                    "text": sentence[:120] + ("..." if len(sentence) > 120 else ""),
+                    "chars": len(sentence),
+                    "file": f"/audio/history/{entry_id}.wav",
+                    "elapsed_sec": round(elapsed, 2),
+                    "bytes": len(boosted),
+                }
+                yield f"data: {json.dumps(event)}\n\n"
+                logger.info("  Stream %d/%d: %d chars -> %.1fs", i + 1, total, len(sentence), elapsed)
+
+            except GeneratorExit:
+                logger.info("Streaming TTS cancelled by client at sentence %d/%d", i + 1, total)
+                return
+            except Exception as e:
+                logger.error("Sentence %d failed: %s", i + 1, e)
+                failed += 1
+                yield f"data: {json.dumps({'type': 'error', 'index': i, 'error': str(e)})}\n\n"
+
+        total_elapsed = time.time() - t0
+        yield f"data: {json.dumps({'type': 'done', 'total': total, 'failed': failed, 'elapsed_sec': round(total_elapsed, 2)})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 # ── OpenAI passthrough ───────────────────────────────────
 @app.route("/v1/audio/speech", methods=["POST"])

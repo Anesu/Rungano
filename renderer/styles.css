@@ -208,6 +208,8 @@ input, textarea { user-select: text; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-primary { background: var(--accent-strong); border-color: var(--accent-strong); }
 .btn-primary:hover { background: var(--accent); border-color: var(--accent); }
+.btn-danger { background: var(--bad); border-color: var(--bad); }
+.btn-danger:hover { background: #ff6b63; border-color: #ff6b63; }
 .btn-ghost { background: transparent; }
 .btn-sm { padding: 4px 9px; font-size: 12px; }
 

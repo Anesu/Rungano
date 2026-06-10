@@ -44,6 +44,7 @@ const SGLANG_URL = `http://127.0.0.1:${SGLANG_PORT}`;
 // ── State ────────────────────────────────────────────────────────────
 let mainWindow = null;
 let tray = null;
+let trayMenu = null;
 let sglangProcess = null;
 let flaskProcess = null;
 let isQuitting = false;
@@ -127,16 +128,15 @@ function createTray() {
     { type: 'separator' },
     { label: 'Quit', click: () => { isQuitting = true; app.quit(); } },
   ]);
+  trayMenu = ctx;
   tray.setContextMenu(ctx);
   tray.on('click', () => { if (mainWindow) { mainWindow.show(); mainWindow.focus(); } });
 }
 
 function updateTrayStatus(flask, sglang) {
-  if (!tray) return;
-  const menu = tray.getMenu();
-  if (!menu) return;
-  const f = menu.getMenuItemById('status-flask');
-  const s = menu.getMenuItemById('status-sglang');
+  if (!trayMenu) return;
+  const f = trayMenu.getMenuItemById('status-flask');
+  const s = trayMenu.getMenuItemById('status-sglang');
   if (f) f.label = `  Flask:    ${flask ? '✓ ready' : '✗ not ready'}`;
   if (s) s.label = `  SGLang:   ${sglang ? '✓ ready' : '✗ not ready'}`;
 }
