@@ -268,7 +268,7 @@ def _api_tts_long_impl():
     if not wavs:
         return jsonify({"error": "All chunks failed — SGLang-Omni may be down"}), 500
 
-    combined = concat_wavs(wavs, crossfade_ms=50, gap_ms=0)
+    combined = concat_wavs(wavs, crossfade_ms=0, gap_ms=100)
     entry_id = uuid.uuid4().hex[:12]
     out_path = HISTORY_DIR / f"{entry_id}.wav"
     out_path.write_bytes(combined)
