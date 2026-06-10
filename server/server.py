@@ -288,9 +288,8 @@ def _api_tts_long_impl():
         try:
             raw = tts.synthesize(text=chunk, references=references, temperature=temperature, top_k=top_k, max_new_tokens=tok)
             boosted = apply_gain(raw, gain=volume)
-            # v2 trim: threshold_ratio=0.02, pad_sec=0.2. Skip last chunk.
-            if i < len(chunks) - 1:
-                boosted = trim_silence(boosted, threshold_ratio=0.02, pad_sec=0.2)
+            # No trimming — it eats words unpredictably depending on model output variance.
+            # The 100ms gap between chunks provides clean separation.
             wavs.append(boosted)
         except Exception as e:
             logger.error("Chunk %d failed: %s", i + 1, e)
@@ -299,7 +298,7 @@ def _api_tts_long_impl():
     if not wavs:
         return jsonify({"error": "All chunks failed — SGLang-Omni may be down"}), 500
 
-    combined = concat_wavs(wavs, crossfade_ms=50, gap_ms=0)
+    combined = concat_wavs(wavs, crossfade_ms=0, gap_ms=100)
     entry_id = uuid.uuid4().hex[:12]
     out_path = HISTORY_DIR / f"{entry_id}.wav"
     out_path.write_bytes(combined)
