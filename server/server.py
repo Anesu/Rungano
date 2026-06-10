@@ -243,9 +243,12 @@ def _api_tts_long_impl():
     chunks = _split_sentences(text, max_chunk=chunk_size)
     logger.info("Long TTS: %d chunks for %d chars (max %d/chunk)", len(chunks), len(text), chunk_size)
 
-    # Smart token budget: ~8 chars/sec × 50 audio tokens/sec × 2.0 margin. Cap 4096.
+    # Tight token budget: Shona ≈13 chars/sec × 50 audio tok/sec × 1.3 margin.
+    # No generous headroom — that creates trailing noise we then have to trim.
+    # With a tight budget the model finishes the text and stops almost immediately,
+    # so we don't NEED trim_silence at all.
     def _tok_budget(chars):
-        return min(4096, max(768, int(len(chars) / 8 * 50 * 2.0)))
+        return int(len(chars) / 13 * 50 * 1.3)
 
     t0 = time.time()
     tts = get_tts()
@@ -256,11 +259,6 @@ def _api_tts_long_impl():
         try:
             raw = tts.synthesize(text=chunk, references=references, temperature=temperature, top_k=top_k, max_new_tokens=tok)
             boosted = apply_gain(raw, gain=volume)
-            # Trim trailing noise, but preserve natural speech decay at sentence ends.
-            # Higgs produces a slow amplitude taper at sentence boundaries — a short
-            # pad clips it. 0.8s keeps the natural cadence intact.
-            if i < len(chunks) - 1:
-                boosted = trim_silence(boosted, threshold_ratio=0.02, pad_sec=0.8)
             wavs.append(boosted)
         except Exception as e:
             logger.error("Chunk %d failed: %s", i + 1, e)
