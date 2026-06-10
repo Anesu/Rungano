@@ -95,12 +95,14 @@ class HiggsTTS:
                    references: list[dict] | None = None,
                    temperature: float = 0.8,
                    top_k: int = 50,
+                   top_p: float = 0.9,
                    max_new_tokens: int = 1024) -> bytes:
         """Non-streaming. Returns the complete WAV file bytes."""
         payload: dict[str, Any] = {
             "input": text,
             "temperature": temperature,
             "top_k": top_k,
+            "top_p": top_p,
             "max_new_tokens": max_new_tokens,
             "stream": False,
         }

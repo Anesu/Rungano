@@ -149,11 +149,12 @@ def api_voices_custom_upload():
         return jsonify({"error": "No audio file provided (field 'audio')"}), 400
     audio = request.files["audio"]
     name = (request.form.get("name") or "").strip()
+    language = (request.form.get("language") or "english").strip()
     transcript = (request.form.get("transcript") or "").strip()
     if not name:
         return jsonify({"error": "Field 'name' is required"}), 400
-    voice_id = get_voice_catalog().add_custom(name=name, audio_bytes=audio.read(), audio_filename=audio.filename or "ref.wav", transcript=transcript)
-    return jsonify({"id": voice_id, "name": name, "transcript": transcript})
+    voice_id = get_voice_catalog().add_custom(name=name, language=language, audio_bytes=audio.read(), audio_filename=audio.filename or "ref.wav", transcript=transcript)
+    return jsonify({"id": voice_id, "name": name, "language": language, "transcript": transcript})
 
 @app.route("/api/voices/custom/<voice_id>", methods=["DELETE"])
 def api_voices_custom_delete(voice_id):
@@ -188,6 +189,7 @@ def api_tts():
     references = data.get("references")
     temperature = float(data.get("temperature", 0.8))
     top_k = int(data.get("top_k", 50))
+    top_p = float(data.get("top_p", 0.9))
     max_new_tokens = int(data.get("max_new_tokens", 4096))
     volume = float(data.get("volume", 1.8))
     controls = data.get("controls") or {}
@@ -202,7 +204,7 @@ def api_tts():
     try:
         t0 = time.time()
         tts = get_tts()
-        audio_bytes = tts.synthesize(text=text, references=references, temperature=temperature, top_k=top_k, max_new_tokens=max_new_tokens)
+        audio_bytes = tts.synthesize(text=text, references=references, temperature=temperature, top_k=top_k, top_p=top_p, max_new_tokens=max_new_tokens)
         audio_bytes = apply_gain(audio_bytes, gain=volume)
         audio_bytes = trim_silence(audio_bytes)
         out_path.write_bytes(audio_bytes)
@@ -260,6 +262,7 @@ def api_tts_batch():
                 references=references,
                 temperature=temperature,
                 top_k=top_k,
+                top_p=top_p,
                 max_new_tokens=2048,  # single sentence — 40s is more than enough
             )
             boosted = apply_gain(raw, gain=volume)

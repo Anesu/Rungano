@@ -64,6 +64,7 @@ class VoiceCatalog:
                 "id": meta["id"],
                 "name": meta.get("name", meta["id"]),
                 "kind": "custom",
+                "language": meta.get("language", "english"),
                 "audio_path": str(d / "audio" / meta.get("audio_filename", "ref.wav")),
                 "transcript": meta.get("transcript", ""),
                 "created_at": meta.get("created_at"),
@@ -82,16 +83,16 @@ class VoiceCatalog:
         return None
 
     # ── CRUD on custom voices ───────────────────────────────────────
-    def add_custom(self, *, name: str, audio_bytes: bytes, audio_filename: str, transcript: str) -> str:
+    def add_custom(self, *, name: str, language: str = "english", audio_bytes: bytes, audio_filename: str, transcript: str) -> str:
         vid = uuid.uuid4().hex[:10]
         d = self.custom_dir / vid
         (d / "audio").mkdir(parents=True, exist_ok=True)
-        # Sanitise the filename to a safe extension
         safe_name = Path(audio_filename).name or "ref.wav"
         (d / "audio" / safe_name).write_bytes(audio_bytes)
         meta = {
             "id": vid,
             "name": name,
+            "language": language,
             "transcript": transcript,
             "audio_filename": safe_name,
             "created_at": __import__("time").time(),

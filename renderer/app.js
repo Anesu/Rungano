@@ -23,17 +23,37 @@ const els = {
   dotSglang: $('dot-sglang'), textSglang: $('text-sglang'),
   emotionChips: $('emotion-chips'), styleChips: $('style-chips'),
   prosodyChips: $('prosody-chips'), sfxChips: $('sfx-chips'),
-  cloneModal: $('clone-modal'), cloneName: $('clone-name'), cloneAudio: $('clone-audio'),
+  cloneModal: $('clone-modal'), cloneName: $('clone-name'), cloneLanguage: $('clone-language'), cloneAudio: $('clone-audio'),
   cloneTranscript: $('clone-transcript'), btnCloneCancel: $('btn-clone-cancel'), btnCloneSave: $('btn-clone-save'),
   toast: $('toast'),
-  // New layout elements
-  voiceCardDetail: $('voice-card-detail'), voiceKindBadge: $('voice-kind-badge'),
+  // Layout
+  voiceCardBadges: $('voice-card-badges'), voiceLang: $('voice-lang'), voiceKind: $('voice-kind'),
   voiceTranscript: $('voice-transcript'),
   settingsSummary: $('settings-summary'),
-  recentSection: $('recent-section'), recentList: $('recent-list'),
+  recentSection: $('recent-section'), recentList: $('recent-list'), btnClearHistory: $('btn-clear-history'),
   vramGaugeWrap: $('vram-gauge-wrap'), vramFill: $('vram-fill'), vramLabel: $('vram-label'),
   emotionCount: $('emotion-count'), styleCount: $('style-count'),
   prosodyCount: $('prosody-count'), sfxCount: $('sfx-count'),
+  // Settings modal
+  btnSettings: $('btn-settings'), settingsModal: $('settings-modal'),
+  settingTemperature: $('setting-temperature'), settingTopK: $('setting-topk'),
+  settingTopP: $('setting-topp'), settingTokens: $('setting-tokens'),
+  tempValue: $('temp-value'), topkValue: $('topk-value'), toppValue: $('topp-value'), tokensValue: $('tokens-value'),
+  btnSettingsClose: $('btn-settings-close'), btnSettingsReset: $('btn-settings-reset'),
+  // Theme
+  btnTheme: $('btn-theme'),
+};
+
+// ── Label mapping (token → human-readable) ──────────────────────────
+const LABELS = {
+  // Prosody
+  speed_very_slow: 'Very slow', speed_slow: 'Slow',
+  speed_fast: 'Fast', speed_very_fast: 'Very fast',
+  pitch_low: 'Low pitch', pitch_high: 'High pitch',
+  pause: 'Pause', long_pause: 'Long pause',
+  expressive_high: 'Dramatic', expressive_low: 'Monotone',
+  // Styles
+  singing: 'Singing', shouting: 'Shouting', whispering: 'Whispering',
 };
 
 // ── State ──────────────────────────────────────────────────────────────
@@ -45,6 +65,8 @@ const state = {
   sentences: [],
   playbackIndex: -1,
   _abortController: null,
+  // Model settings
+  temperature: 0.8, topK: 50, topP: 0.9, maxTokens: 2048,
 };
 
 // ── API ────────────────────────────────────────────────────────────────
@@ -67,8 +89,8 @@ function toast(msg, isError = false) {
 function buildChipRow(parent, items, mode = 'single', dataKey = 'token') {
   parent.innerHTML = '';
   const normalized = (typeof items[0] === 'string')
-    ? items.map(s => ({ [dataKey]: s, label: s }))
-    : items;
+    ? items.map(s => ({ [dataKey]: s, label: LABELS[s] || s }))
+    : items.map(it => ({ ...it, label: LABELS[it[dataKey]] || it.label || it[dataKey] }));
   for (const it of normalized) {
     const c = document.createElement('button');
     c.className = 'chip'; c.textContent = it.label || it[dataKey]; c.dataset.value = it[dataKey];
@@ -139,12 +161,14 @@ async function loadVoices() {
 
 function updateVoiceCard() {
   const voice = state.voices.find(v => v.id === state.selectedVoice);
-  if (!voice) { els.voiceCardDetail.hidden = true; return; }
-  els.voiceCardDetail.hidden = false;
-  els.voiceKindBadge.textContent = voice.kind || 'preset';
-  els.voiceKindBadge.style.background = voice.kind === 'custom'
-    ? 'rgba(63,185,80,0.12)' : 'rgba(88,166,255,0.12)';
-  els.voiceKindBadge.style.color = voice.kind === 'custom' ? 'var(--good)' : 'var(--accent)';
+  if (!voice) { els.voiceCardBadges.hidden = true; els.voiceTranscript.textContent = ''; return; }
+  els.voiceCardBadges.hidden = false;
+  // Language badge
+  const lang = voice.language || (voice.kind === 'custom' ? 'unknown' : 'any');
+  els.voiceLang.textContent = lang;
+  els.voiceLang.style.display = '';
+  // Kind badge
+  els.voiceKind.textContent = voice.kind || 'preset';
   els.voiceTranscript.textContent = (voice.transcript || 'No reference transcript').slice(0, 100);
 }
 
@@ -267,7 +291,9 @@ async function synthesise() {
   state.playbackIndex = -1;
   renderSentenceList();
 
-  const body = { text, voice_id: state.selectedVoice, volume: 1.8 };
+  const body = { text, voice_id: state.selectedVoice, volume: 1.8,
+    temperature: state.temperature, top_k: state.topK, top_p: state.topP,
+    max_new_tokens: state.maxTokens };
   const controls = buildControlsPayload();
   if (controls) body.controls = controls;
 
@@ -441,13 +467,73 @@ function closeCloneModal() { els.cloneModal.hidden = true; els.cloneModal.style.
 async function saveClone() {
   const name = els.cloneName.value.trim(); const file = els.cloneAudio.files[0]; const transcript = els.cloneTranscript.value.trim();
   if (!name || !file || !transcript) { toast('Name, audio file, and transcript are all required.', true); return; }
-  const fd = new FormData(); fd.append('name', name); fd.append('transcript', transcript); fd.append('audio', file);
+  const fd = new FormData(); fd.append('name', name); fd.append('language', els.cloneLanguage.value); fd.append('transcript', transcript); fd.append('audio', file);
   try {
     const r = await fetch(`${state.flaskUrl}/api/voices/custom`, { method: 'POST', body: fd });
     if (!r.ok) throw new Error(await r.text());
     toast(`Voice "${name}" added.`); closeCloneModal(); await loadVoices();
     const data = await r.json(); state.selectedVoice = data.id; els.voiceSelect.value = data.id;
   } catch (e) { toast(`Save failed: ${e.message}`, true); }
+}
+
+// ── Theme toggle ───────────────────────────────────────────────────────
+function initTheme() {
+  const saved = localStorage.getItem('rungano-theme');
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const theme = saved || (prefersDark ? 'dark' : 'light');
+  applyTheme(theme);
+}
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  els.btnTheme.textContent = theme === 'light' ? '☀' : '🌙';
+  localStorage.setItem('rungano-theme', theme);
+}
+function toggleTheme() {
+  const current = document.documentElement.dataset.theme;
+  applyTheme(current === 'light' ? 'dark' : 'light');
+}
+
+// ── Model settings modal ───────────────────────────────────────────────
+function openSettingsModal() {
+  els.settingTemperature.value = state.temperature;
+  els.settingTopK.value = state.topK;
+  els.settingTopP.value = state.topP;
+  els.settingTokens.value = state.maxTokens;
+  updateSettingLabels();
+  els.settingsModal.hidden = false; els.settingsModal.style.display = 'flex';
+}
+function closeSettingsModal() { els.settingsModal.hidden = true; els.settingsModal.style.display = 'none'; }
+function updateSettingLabels() {
+  els.tempValue.textContent = parseFloat(els.settingTemperature.value).toFixed(2);
+  els.topkValue.textContent = els.settingTopK.value;
+  els.toppValue.textContent = parseFloat(els.settingTopP.value).toFixed(2);
+  els.tokensValue.textContent = els.settingTokens.value;
+}
+function saveSettings() {
+  state.temperature = parseFloat(els.settingTemperature.value);
+  state.topK = parseInt(els.settingTopK.value);
+  state.topP = parseFloat(els.settingTopP.value);
+  state.maxTokens = parseInt(els.settingTokens.value);
+  closeSettingsModal();
+  toast('Settings saved.');
+}
+function resetSettings() {
+  els.settingTemperature.value = 0.8;
+  els.settingTopK.value = 50;
+  els.settingTopP.value = 0.9;
+  els.settingTokens.value = 2048;
+  updateSettingLabels();
+}
+
+// ── Clear history ──────────────────────────────────────────────────────
+async function clearAllHistory() {
+  try {
+    const { entries } = await api('/api/history');
+    for (const e of entries) { await api(`/api/history/${e.id}`, { method: 'DELETE' }); }
+    els.recentSection.hidden = true;
+    els.recentList.innerHTML = '';
+    toast('History cleared.');
+  } catch (e) { toast('Failed to clear history.', true); }
 }
 
 // ── Recent generations ─────────────────────────────────────────────────
@@ -497,10 +583,12 @@ async function init() {
 
   // Try to load controls catalogue early; if server isn't up yet,
   // the IPC health handler will retry initChips() when SGLang transitions ready.
+  initTheme();
   initChips();
   loadVoices();
   loadRecentGenerations();
 
+  // Event wiring
   els.textInput.addEventListener('input', () => { els.charCount.textContent = els.textInput.value.length; });
   els.voiceSelect.addEventListener('change', () => { state.selectedVoice = els.voiceSelect.value; updateVoiceCard(); });
   els.btnSynth.addEventListener('click', () => {
@@ -516,6 +604,18 @@ async function init() {
     const first = state.sentences.find(s => s.status === 'done');
     if (first) { playSentence(first.index); }
   });
+  // Settings
+  els.btnSettings.addEventListener('click', openSettingsModal);
+  els.btnSettingsClose.addEventListener('click', saveSettings);
+  els.btnSettingsReset.addEventListener('click', resetSettings);
+  els.settingTemperature.addEventListener('input', updateSettingLabels);
+  els.settingTopK.addEventListener('input', updateSettingLabels);
+  els.settingTopP.addEventListener('input', updateSettingLabels);
+  els.settingTokens.addEventListener('input', updateSettingLabels);
+  // Theme
+  els.btnTheme.addEventListener('click', toggleTheme);
+  // Clear history
+  els.btnClearHistory.addEventListener('click', clearAllHistory);
 
   // Auto-advance: when current audio ends, play next
   els.audioPlayer.addEventListener('ended', playNextSentence);

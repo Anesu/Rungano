@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -15,7 +15,7 @@
       <div class="brand">
         <span class="brand-mark">RUNGANO</span><span class="brand-sub">TTS</span>
       </div>
-      <div class="status-pill" title="Server status">
+      <div class="status-pill" title="Server">
         <span class="dot" id="dot-server"></span>
         <span class="status-text" id="text-server">Connecting…</span>
       </div>
@@ -27,93 +27,98 @@
           <span class="vram-label" id="vram-label"></span>
         </div>
       </div>
+      <button class="icon-btn" id="btn-settings" title="Model settings">⚙</button>
+      <button class="icon-btn" id="btn-theme" title="Toggle light/dark theme">☀</button>
       <button class="icon-btn" id="btn-restart" title="Restart servers">⟳</button>
       <button class="icon-btn" id="btn-output" title="Open output folder">📁</button>
     </header>
 
-    <!-- ═══ Main 3-column grid ═══════════════════════════════════════ -->
+    <!-- ═══ Main 2-column ════════════════════════════════════════════ -->
     <main class="main">
 
       <!-- LEFT: Text Input -->
       <section class="panel panel-input">
         <label class="field-label" for="text-input">Text to synthesise</label>
-        <textarea id="text-input" placeholder="Type or paste your text. Each sentence will be synthesized individually for best quality." spellcheck="false"></textarea>
-      </section>
-
-      <!-- MIDDLE: Voice + Controls -->
-      <section class="panel panel-controls">
-        <label class="field-label">Voice</label>
-        <div class="voice-card" id="voice-card">
-          <div class="voice-card-header">
-            <select id="voice-select"><option>Loading…</option></select>
-            <button class="btn btn-sm btn-ghost" id="btn-add-voice" title="Upload a voice reference">+ Clone</button>
-          </div>
-          <div class="voice-card-detail" id="voice-card-detail" hidden>
-            <span class="voice-kind-badge" id="voice-kind-badge"></span>
-            <span class="voice-transcript" id="voice-transcript"></span>
+        <textarea id="text-input" placeholder="Type or paste your text. Each sentence will be synthesized individually." spellcheck="false"></textarea>
+        <div class="input-footer">
+          <button class="btn btn-primary" id="btn-synth">
+            <span class="spinner" id="spinner-synth" hidden></span>
+            <span class="btn-label">Synthesise All</span>
+          </button>
+          <span class="char-count"><span id="char-count">0</span> chars</span>
+          <div class="progress-wrap" id="progress-wrap" hidden>
+            <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+            <span class="muted" id="progress-text"></span>
           </div>
         </div>
-
-        <div class="chip-section">
-          <label class="field-label">Emotion <span class="chip-count" id="emotion-count"></span></label>
-          <div class="chip-grid" id="emotion-chips" data-category="emotion"></div>
-        </div>
-
-        <div class="chip-section">
-          <label class="field-label">Style <span class="chip-count" id="style-count"></span></label>
-          <div class="chip-row" id="style-chips" data-category="style"></div>
-        </div>
-
-        <div class="chip-section">
-          <label class="field-label">Prosody <span class="chip-count" id="prosody-count"></span></label>
-          <div class="chip-row" id="prosody-chips" data-category="prosody"></div>
-        </div>
-
-        <div class="chip-section">
-          <label class="field-label">Sound effects <span class="chip-count" id="sfx-count"></span></label>
-          <div class="chip-row" id="sfx-chips" data-category="sfx"></div>
-        </div>
-
-        <div class="settings-summary" id="settings-summary">No effects selected</div>
       </section>
 
-      <!-- RIGHT: Playlist + Output -->
+      <!-- RIGHT: Voice + Effects + Playlist -->
       <section class="panel panel-output">
+
+        <!-- Voice Card — most prominent feature -->
+        <div class="voice-card" id="voice-card">
+          <div class="voice-card-top">
+            <select id="voice-select"><option>Loading…</option></select>
+            <button class="btn btn-sm btn-ghost" id="btn-add-voice">+ Clone</button>
+          </div>
+          <div class="voice-card-badges" id="voice-card-badges" hidden>
+            <span class="badge badge-lang" id="voice-lang"></span>
+            <span class="badge badge-kind" id="voice-kind"></span>
+          </div>
+          <div class="voice-card-transcript" id="voice-transcript"></div>
+        </div>
+
+        <!-- Effects — collapsible groups with human labels -->
+        <details class="effects-group" id="eg-emotion">
+          <summary>Emotion <span class="chip-count" id="emotion-count"></span></summary>
+          <div class="chip-grid" id="emotion-chips" data-category="emotion"></div>
+        </details>
+        <details class="effects-group" id="eg-style">
+          <summary>Style <span class="chip-count" id="style-count"></span></summary>
+          <div class="chip-row" id="style-chips" data-category="style"></div>
+        </details>
+        <details class="effects-group" id="eg-prosody">
+          <summary>Prosody <span class="chip-count" id="prosody-count"></span></summary>
+          <div class="chip-row" id="prosody-chips" data-category="prosody"></div>
+        </details>
+        <details class="effects-group" id="eg-sfx">
+          <summary>Sound Effects <span class="chip-count" id="sfx-count"></span></summary>
+          <div class="chip-row" id="sfx-chips" data-category="sfx"></div>
+        </details>
+
+        <!-- Settings summary -->
+        <div class="settings-summary" id="settings-summary">No effects selected</div>
+
+        <!-- Recent generations -->
         <div class="recent-section" id="recent-section" hidden>
-          <label class="field-label">Recent</label>
+          <div class="section-head">
+            <span class="field-label">Recent</span>
+            <button class="btn-ghost-sm" id="btn-clear-history">Clear</button>
+          </div>
           <div class="recent-list" id="recent-list"></div>
         </div>
 
+        <!-- Playlist header -->
         <div class="output-head">
           <span class="field-label">Playlist</span>
           <div class="row">
-            <button class="btn btn-sm btn-ghost" id="btn-play-all" hidden title="Play all sentences in order">▶ Play All</button>
+            <button class="btn btn-sm btn-ghost" id="btn-play-all" hidden>▶ Play All</button>
             <span class="muted" id="output-state">Type or paste text and click Synthesise All.</span>
           </div>
         </div>
 
+        <!-- Audio -->
         <div class="audio-wrap" id="audio-wrap">
           <p class="muted audio-placeholder" id="audio-placeholder">Audio player will appear when first sentence completes.</p>
           <audio id="audio-player" controls preload="auto" hidden></audio>
         </div>
 
+        <!-- Sentence list -->
         <ul class="sentence-list" id="sentence-list"></ul>
         <p class="shortcuts-hint">Space: play/pause &nbsp; ← →: prev/next &nbsp; Esc: stop &nbsp; Ctrl+Enter: synthesise</p>
       </section>
     </main>
-
-    <!-- ═══ Bottom action bar ═══════════════════════════════════════ -->
-    <footer class="action-bar">
-      <button class="btn btn-primary" id="btn-synth">
-        <span class="spinner" id="spinner-synth" hidden></span>
-        <span class="btn-label">Synthesise All</span>
-      </button>
-      <span class="char-count"><span id="char-count">0</span> chars</span>
-      <div class="progress-wrap" id="progress-wrap" hidden>
-        <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
-        <span class="muted" id="progress-text"></span>
-      </div>
-    </footer>
 
     <!-- ═══ Voice Clone Modal ═══════════════════════════════════════ -->
     <div class="modal" id="clone-modal" hidden>
@@ -121,7 +126,17 @@
         <h3>Clone a voice</h3>
         <p class="muted">Upload 10–30 seconds of clean reference audio plus a transcript.</p>
         <label class="field-label">Name</label>
-        <input type="text" id="clone-name" placeholder="e.g. Adam — male, English">
+        <input type="text" id="clone-name" placeholder="e.g. Anesu — Shona">
+        <div class="modal-row">
+          <div>
+            <label class="field-label">Language</label>
+            <select id="clone-language">
+              <option value="shona">Shona</option>
+              <option value="english" selected>English</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+        </div>
         <label class="field-label">Reference audio (.wav / .mp3 / .flac)</label>
         <input type="file" id="clone-audio" accept="audio/*">
         <label class="field-label">Transcript</label>
@@ -129,6 +144,55 @@
         <div class="modal-actions">
           <button class="btn btn-ghost" id="btn-clone-cancel">Cancel</button>
           <button class="btn btn-primary" id="btn-clone-save">Save voice</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Model Settings Modal ═══════════════════════════════════ -->
+    <div class="modal" id="settings-modal" hidden>
+      <div class="modal-card">
+        <h3>Model Settings</h3>
+        <p class="muted">These parameters control how the AI generates speech. Defaults work well for most cases.</p>
+
+        <div class="setting-row">
+          <div class="setting-label">
+            <span>Temperature</span>
+            <span class="setting-value" id="temp-value">0.80</span>
+          </div>
+          <input type="range" id="setting-temperature" min="0.1" max="1.5" step="0.05" value="0.8">
+          <span class="setting-hint">Higher = more creative/varied. Lower = more consistent.</span>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-label">
+            <span>Top-K</span>
+            <span class="setting-value" id="topk-value">50</span>
+          </div>
+          <input type="range" id="setting-topk" min="1" max="100" step="1" value="50">
+          <span class="setting-hint">Limits token choices to top K. Lower = more focused.</span>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-label">
+            <span>Top-P</span>
+            <span class="setting-value" id="topp-value">0.90</span>
+          </div>
+          <input type="range" id="setting-topp" min="0.1" max="1.0" step="0.05" value="0.9">
+          <span class="setting-hint">Nucleus sampling threshold. Lower = more predictable.</span>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-label">
+            <span>Max Tokens</span>
+            <span class="setting-value" id="tokens-value">2048</span>
+          </div>
+          <input type="range" id="setting-tokens" min="256" max="4096" step="128" value="2048">
+          <span class="setting-hint">Maximum audio length per sentence. 2048 ≈ 40 seconds.</span>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="btn-settings-reset">Reset defaults</button>
+          <button class="btn btn-primary" id="btn-settings-close">Done</button>
         </div>
       </div>
     </div>
