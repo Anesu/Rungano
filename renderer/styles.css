@@ -11,7 +11,7 @@
   --border-soft: #21262d;
   --text-0: #e6edf3;
   --text-1: #b1bac4;
-  --text-2: #7d8590;
+  --text-2: #949da8;
   --accent: #58a6ff;
   --accent-strong: #1f6feb;
   --good: #3fb950;
@@ -224,7 +224,8 @@ input, textarea { user-select: text; }
 
 /* ── Output panel ─────────────────────────────────────────── */
 .output-head, .history-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-.audio-wrap { background: var(--bg-0); border: 1px solid var(--border); border-radius: 6px; padding: 6px; }
+.audio-wrap { background: var(--bg-0); border: 1px solid var(--border); border-radius: 6px; padding: 6px; min-height: 48px; display: flex; align-items: center; }
+.audio-placeholder { padding: 8px 12px; margin: 0; }
 audio { width: 100%; }
 .history-list { list-style: none; margin: 0; padding: 0; flex: 1; overflow-y: auto; min-height: 0; }
 .history-list li {

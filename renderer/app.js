@@ -16,7 +16,7 @@ const els = {
   voiceSelect: $('voice-select'), btnAddVoice: $('btn-add-voice'),
   btnSynth: $('btn-synth'), btnRestart: $('btn-restart'), btnOutput: $('btn-output'),
   spinnerSynth: $('spinner-synth'),
-  audioPlayer: $('audio-player'), outputState: $('output-state'),
+  audioPlayer: $('audio-player'), audioWrap: $('audio-wrap'), audioPlaceholder: $('audio-placeholder'), outputState: $('output-state'),
   sentenceList: $('sentence-list'), btnPlayAll: $('btn-play-all'),
   progressWrap: $('progress-wrap'), progressFill: $('progress-fill'), progressText: $('progress-text'),
   dotServer: $('dot-server'), textServer: $('text-server'),
@@ -238,7 +238,11 @@ async function synthesise() {
           updateProgress(doneCount, totalSentences);
           renderSentenceList();
           // Auto-play the first sentence as soon as it lands
-          if (doneCount === 1) playSentence(0);
+          if (doneCount === 1) {
+            els.audioPlayer.hidden = false;
+            els.audioPlaceholder.hidden = true;
+            playSentence(0);
+          }
         } else if (event.type === 'error') {
           state.sentences[event.index] = {
             ...state.sentences[event.index], status: 'failed',
@@ -276,6 +280,9 @@ function _enterSynthesisingState() {
   els.btnSynth.classList.add('btn-danger');
   els.spinnerSynth.hidden = false;
   els.progressWrap.hidden = false;
+  // Hide audio player until first sentence lands
+  els.audioPlayer.hidden = true;
+  els.audioPlaceholder.hidden = false;
 }
 
 function _leaveSynthesisingState() {

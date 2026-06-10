@@ -81,12 +81,13 @@
           <span class="field-label">Playlist</span>
           <div class="row">
             <button class="btn btn-sm btn-ghost" id="btn-play-all" hidden title="Play all sentences in order">▶ Play All</button>
-            <span class="muted" id="output-state">No sentences yet.</span>
+            <span class="muted" id="output-state">Type or paste text and click Synthesise All.</span>
           </div>
         </div>
 
-        <div class="audio-wrap">
-          <audio id="audio-player" controls preload="auto"></audio>
+        <div class="audio-wrap" id="audio-wrap">
+          <p class="muted audio-placeholder" id="audio-placeholder">Audio player will appear when first sentence completes.</p>
+          <audio id="audio-player" controls preload="auto" hidden></audio>
         </div>
 
         <ul class="sentence-list" id="sentence-list"></ul>
