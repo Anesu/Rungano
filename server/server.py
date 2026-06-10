@@ -275,12 +275,9 @@ def _api_tts_long_impl():
     chunks = _split_sentences(text, max_chunk=chunk_size)
     logger.info("Long TTS: %d chunks for %d chars (max %d/chunk)", len(chunks), len(text), chunk_size)
 
-    # Tight token budget: Shona ≈13 chars/sec × 50 audio tok/sec × 1.3 margin.
-    # No generous headroom — that creates trailing noise we then have to trim.
-    # With a tight budget the model finishes the text and stops almost immediately,
-    # so we don't NEED trim_silence at all.
+    # v2 token budget — known to work best
     def _tok_budget(chars):
-        return int(len(chars) / 13 * 50 * 1.3)
+        return min(4096, max(768, int(len(chars) / 8 * 50 * 2.0)))
 
     t0 = time.time()
     tts = get_tts()
@@ -291,10 +288,9 @@ def _api_tts_long_impl():
         try:
             raw = tts.synthesize(text=chunk, references=references, temperature=temperature, top_k=top_k, max_new_tokens=tok)
             boosted = apply_gain(raw, gain=volume)
-            # Gentle trim: only cut near-digital-silence (samples < 100 after 1.8x gain).
-            # This catches the model's low-level trailing noise (~±5-50) but never touches
-            # real speech (~±500 to ±20,000). Pad 0.3s so sentence endings breathe.
-            boosted = _trim_trailing_quiet(boosted, abs_threshold=100, pad_sec=0.3)
+            # v2 trim: threshold_ratio=0.02, pad_sec=0.2. Skip last chunk.
+            if i < len(chunks) - 1:
+                boosted = trim_silence(boosted, threshold_ratio=0.02, pad_sec=0.2)
             wavs.append(boosted)
         except Exception as e:
             logger.error("Chunk %d failed: %s", i + 1, e)
@@ -303,7 +299,7 @@ def _api_tts_long_impl():
     if not wavs:
         return jsonify({"error": "All chunks failed — SGLang-Omni may be down"}), 500
 
-    combined = concat_wavs(wavs, crossfade_ms=0, gap_ms=100)
+    combined = concat_wavs(wavs, crossfade_ms=50, gap_ms=0)
     entry_id = uuid.uuid4().hex[:12]
     out_path = HISTORY_DIR / f"{entry_id}.wav"
     out_path.write_bytes(combined)
