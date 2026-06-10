@@ -16,7 +16,6 @@ const els = {
   voiceSelect: $('voice-select'), btnAddVoice: $('btn-add-voice'),
   btnSynth: $('btn-synth'), btnRestart: $('btn-restart'), btnOutput: $('btn-output'),
   spinnerSynth: $('spinner-synth'),
-  audioPlayer: $('audio-player'), audioWrap: $('audio-wrap'), audioPlaceholder: $('audio-placeholder'),
   sentenceList: $('sentence-list'), btnPlayAll: $('btn-play-all'),
   progressWrap: $('progress-wrap'), progressFill: $('progress-fill'), progressText: $('progress-text'),
   dotStatus: $('dot-status'), textStatus: $('text-status'),
@@ -26,7 +25,6 @@ const els = {
   cloneTranscript: $('clone-transcript'), btnCloneCancel: $('btn-clone-cancel'), btnCloneSave: $('btn-clone-save'),
   toast: $('toast'),
   // Layout
-  voiceCardBadges: $('voice-card-badges'), voiceLang: $('voice-lang'),
   inputLang: $('input-lang'),
   settingsSummary: $('settings-summary'),
   recentSection: $('recent-section'), recentList: $('recent-list'), btnClearHistory: $('btn-clear-history'),
@@ -166,13 +164,9 @@ async function loadVoices() {
 
 function updateVoiceCard() {
   const voice = state.voices.find(v => v.id === state.selectedVoice);
-  // Voice card language badge
-  if (!voice) { els.voiceCardBadges.hidden = true; els.inputLang.hidden = true; return; }
+  if (!voice) { els.inputLang.hidden = true; return; }
   const lang = voice.language || (voice.kind === 'custom' ? 'unknown' : 'any');
-  if (lang === 'any') { els.voiceCardBadges.hidden = true; els.inputLang.hidden = true; return; }
-  els.voiceCardBadges.hidden = false;
-  els.voiceLang.textContent = lang;
-  // Language badge next to "Text to synthesise"
+  if (lang === 'any') { els.inputLang.hidden = true; return; }
   els.inputLang.hidden = false;
   els.inputLang.textContent = lang.toUpperCase();
 }
@@ -199,9 +193,8 @@ function renderSentenceList() {
     if (s.status === 'done') {
       li.style.cursor = 'pointer';
       li.addEventListener('click', (e) => {
-        // Don't trigger play if clicking the download button
         if (e.target.classList.contains('s-dl')) return;
-        playSentence(s.index);
+        openInVlc(s);
       });
 
       // Download button
@@ -234,50 +227,20 @@ function downloadSentence(s) {
   document.body.removeChild(a);
 }
 
-function playSentence(index) {
-  const s = state.sentences.find(x => x.index === index);
-  if (!s || s.status !== 'done') return;
-  state.playbackIndex = index;
-  const url = state.flaskUrl + s.file + `?t=${Date.now()}`;
-  // Don't restart if already playing this sentence
-  if (els.audioPlayer.src === url && !els.audioPlayer.paused) return;
-  els.audioPlayer.src = url;
-  els.audioPlayer.play().catch(() => {});
-  highlightCurrentSentence();
+async function openInVlc(s) {
+  try {
+    let outputDir = '';
+    try { const cfg = await window.higgs?.getConfig(); outputDir = cfg?.outputDir || ''; } catch {}
+    if (outputDir) {
+      const rel = s.file.replace(/^\/audio\//, '');
+      window.higgs?.openFile(`${outputDir}\\${rel}`.replace(/\//g, '\\'));
+    } else {
+      window.higgs?.openFile(state.flaskUrl + s.file);
+    }
+  } catch {}
 }
 
-function togglePlayPause() {
-  if (els.audioPlayer.paused) {
-    els.audioPlayer.play().catch(() => {});
-  } else {
-    els.audioPlayer.pause();
-  }
-}
-
-function playPreviousSentence() {
-  const prev = [...state.sentences].reverse().find(
-    s => s.index < state.playbackIndex && s.status === 'done'
-  );
-  if (prev) playSentence(prev.index);
-}
-
-function playNextSentence() {
-  const next = state.sentences.find(
-    s => s.index > state.playbackIndex && s.status === 'done'
-  );
-  if (next) { playSentence(next.index); }
-  else { state.playbackIndex = -1; highlightCurrentSentence(); }
-}
-
-function highlightCurrentSentence() {
-  for (const li of els.sentenceList.children) {
-    const idx = parseInt(li.dataset.index);
-    li.classList.toggle('playing', idx === state.playbackIndex);
-    // Show ▶ indicator on the currently playing sentence's index
-    const idxSpan = li.querySelector('.s-idx');
-    if (idxSpan) idxSpan.textContent = idx === state.playbackIndex ? '▶' : `${idx + 1}`;
-  }
-}
+async function playAllInVlc() { await saveM3u(true); }
 
 // ── Synthesise (streaming SSE) ─────────────────────────────────────────
 // The /api/tts/batch/stream endpoint pushes each sentence as it completes.
@@ -355,12 +318,6 @@ async function synthesise() {
           els.progressText.textContent = `Sentence ${doneCount} of ${totalSentences}`;
           updateProgress(doneCount, totalSentences);
           renderSentenceList();
-          // Auto-play the first sentence as soon as it lands
-          if (doneCount === 1) {
-            els.audioPlayer.hidden = false;
-            els.audioPlaceholder.hidden = true;
-            playSentence(0);
-          }
         } else if (event.type === 'error') {
           state.sentences[event.index] = {
             ...state.sentences[event.index], status: 'failed',
@@ -398,8 +355,6 @@ function _enterSynthesisingState() {
   els.btnSynth.classList.add('btn-danger');
   els.spinnerSynth.hidden = false;
   els.progressWrap.hidden = false;
-  els.audioPlayer.hidden = true;
-  els.audioPlaceholder.hidden = false;
 }
 
 function _leaveSynthesisingState() {
@@ -581,21 +536,22 @@ async function exportAllWav() {
 }
 
 // ── Save .m3u playlist ──────────────────────────────────────────────────
-async function saveM3u() {
+async function saveM3u(openAfter = false) {
   const done = state.sentences.filter(s => s.status === 'done');
   if (!done.length) { toast('No sentences to save.', true); return; }
   try {
-    // Get output directory from main process
     let outputDir = '';
     try { const cfg = await window.higgs?.getConfig(); outputDir = cfg?.outputDir || ''; } catch {}
     const lines = ['#EXTM3U'];
+    let m3uPath = '';
     for (const s of done) {
       const name = (s.text || `Sentence ${s.index + 1}`).slice(0, 60);
       lines.push(`#EXTINF:${Math.ceil(s.elapsed_sec || 2)},${name}`);
-      // s.file is /audio/2026-06-10/234449-abc.wav — extract the date/path part
       const relPath = s.file.replace(/^\/audio\//, '');
       if (outputDir) {
-        lines.push(`${outputDir}\\${relPath}`.replace(/\//g, '\\'));
+        const abs = `${outputDir}\\${relPath}`.replace(/\//g, '\\');
+        lines.push(abs);
+        if (!m3uPath) m3uPath = `${outputDir}\\rungano-playlist.m3u`.replace(/\//g, '\\');
       } else {
         lines.push(`${state.flaskUrl}/audio/${relPath}`);
       }
@@ -606,7 +562,8 @@ async function saveM3u() {
     a.download = 'rungano-playlist.m3u';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(a.href);
-    toast(`Saved .m3u with ${done.length} tracks.`);
+    if (openAfter && m3uPath) { window.higgs?.openFile(m3uPath); }
+    else { toast(`Saved .m3u with ${done.length} tracks.`); }
   } catch (e) { toast(`Save failed: ${e.message}`, true); }
 }
 
@@ -706,10 +663,7 @@ async function init() {
   els.btnCloneSave.addEventListener('click', saveClone);
   els.btnOutput.addEventListener('click', () => window.higgs?.openOutput ? window.higgs.openOutput() : '');
   els.btnRestart.addEventListener('click', async () => { toast('Restarting servers…'); try { await window.higgs?.restartServers(); } catch {} });
-  els.btnPlayAll.addEventListener('click', () => {
-    const first = state.sentences.find(s => s.status === 'done');
-    if (first) { playSentence(first.index); }
-  });
+  els.btnPlayAll.addEventListener('click', playAllInVlc);
   // Settings
   els.btnSettings.addEventListener('click', openSettingsModal);
   els.btnSettingsClose.addEventListener('click', saveSettings);
@@ -726,34 +680,20 @@ async function init() {
   els.btnInfo.addEventListener('click', (e) => { e.stopPropagation(); toggleTooltip(); });
   // Export / Save
   els.btnExportWav.addEventListener('click', exportAllWav);
-  els.btnSaveM3u.addEventListener('click', saveM3u);
+  els.btnSaveM3u.addEventListener('click', () => saveM3u(false));
   // Drag-and-drop
   initDragDrop();
-
-  // Auto-advance: when current audio ends, play next
-  els.audioPlayer.addEventListener('ended', playNextSentence);
-  els.audioPlayer.addEventListener('error', () => { playNextSentence(); });
 
   // Ctrl+Enter to synthesise
   els.textInput.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); synthesise(); } });
 
   // Global keyboard shortcuts for playback (only when textarea is not focused)
   document.addEventListener('keydown', (e) => {
-    if (document.activeElement === els.textInput) return;  // don't steal typing
+    if (document.activeElement === els.textInput) return;
     if (e.target.closest('#clone-modal') && !els.cloneModal.hidden) return;
-    if (e.key === ' ' || e.code === 'Space') {
-      e.preventDefault();
-      if (state.sentences.some(s => s.status === 'done')) togglePlayPause();
-    } else if (e.key === 'ArrowRight') {
-      e.preventDefault();
-      playNextSentence();
-    } else if (e.key === 'ArrowLeft') {
-      e.preventDefault();
-      playPreviousSentence();
-    } else if (e.key === 'Escape') {
+    if (e.key === 'Escape') {
       e.preventDefault();
       if (state._abortController) { cancelSynthesis(); }
-      else { els.audioPlayer.pause(); state.playbackIndex = -1; highlightCurrentSentence(); }
     }
   });
 }

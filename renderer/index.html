@@ -69,7 +69,7 @@
 
           <!-- Actions toolbar -->
           <div class="actions-bar" id="actions-bar">
-            <button class="btn btn-sm" id="btn-play-all" hidden>▶ Play All</button>
+            <button class="btn btn-sm" id="btn-play-all" hidden>▶ Play All in VLC</button>
             <button class="btn btn-sm" id="btn-export-wav" hidden title="Download all sentences as one WAV file">Export WAV</button>
             <button class="btn btn-sm" id="btn-save-m3u" hidden title="Save playlist file for VLC">Save .m3u</button>
             <button class="btn btn-sm" id="btn-output" title="Open today's output folder">Open Folder</button>
@@ -80,12 +80,6 @@
             <span class="field-label">Playlist</span>
           </div>
 
-          <!-- Audio -->
-          <div class="audio-wrap" id="audio-wrap">
-            <p class="muted audio-placeholder" id="audio-placeholder">Synthesise text to see audio here.</p>
-            <audio id="audio-player" controls preload="auto" hidden></audio>
-          </div>
-
           <!-- Sentence list -->
           <ul class="sentence-list" id="sentence-list"></ul>
         </div>
@@ -93,13 +87,6 @@
         <!-- ═══ Voice & Effects (bottom) ════════════════════════════ -->
         <div class="output-section">
           <div class="section-divider"></div>
-
-          <!-- Voice Card -->
-          <div class="voice-card" id="voice-card">
-            <div class="voice-card-badges" id="voice-card-badges" hidden>
-              <span class="badge badge-lang" id="voice-lang"></span>
-            </div>
-          </div>
 
           <!-- Effects -->
           <details class="effects-group" id="eg-emotion">

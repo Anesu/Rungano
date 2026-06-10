@@ -249,6 +249,7 @@ ipcMain.handle('higgs:open-output', async () => {
   if (fs.existsSync(todayDir)) return shell.openPath(todayDir);
   return shell.openPath(OUTPUT_DIR);
 });
+ipcMain.handle('higgs:open-file', async (_, filePath) => shell.openPath(filePath));
 ipcMain.handle('higgs:restart-servers', async () => {
   if (flaskProcess) flaskProcess.kill();
   if (sglangProcess) sglangProcess.kill();
