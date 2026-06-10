@@ -95,3 +95,44 @@ class HistoryStore:
                 f.unlink()
                 return True
         return False
+
+    def list_sessions(self) -> list[dict]:
+        """Group entries by synthesis session (date folder + 4-char time prefix).
+        
+        Each session is one 'Synthesise' click — all entries share the same
+        HHMM prefix within a date folder. Returns newest sessions first.
+        """
+        sessions: dict[str, dict] = {}
+        for date_dir in sorted(self.output_dir.iterdir(), reverse=True):
+            if not date_dir.is_dir() or date_dir.name.startswith('.'):
+                continue
+            date_str = date_dir.name
+            json_files = sorted(date_dir.glob("*.json"),
+                               key=lambda p: p.stat().st_mtime, reverse=True)
+            for jf in json_files:
+                try:
+                    entry = json.loads(jf.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                # Session key = date + first 4 chars of HHMMSS prefix
+                fname = jf.stem  # e.g. "234449-abc123def456"
+                prefix = fname[:6] if '-' in fname else fname[:4]
+                key = f"{date_str}/{prefix}"
+                if key not in sessions:
+                    sessions[key] = {
+                        "date": date_str,
+                        "prefix": prefix,
+                        "first_text": entry.get("text", ""),
+                        "sentence_count": 0,
+                        "total_elapsed_sec": 0.0,
+                        "created_at": entry.get("created_at", 0),
+                        "ids": [],
+                    }
+                sessions[key]["sentence_count"] += 1
+                sessions[key]["total_elapsed_sec"] += entry.get("elapsed_sec", 0)
+                sessions[key]["ids"].append(entry.get("id", ""))
+                # Keep the earliest (first sentence) as display text
+                if entry.get("created_at", 0) < sessions[key]["created_at"]:
+                    sessions[key]["created_at"] = entry["created_at"]
+                    sessions[key]["first_text"] = entry.get("text", "")
+        return sorted(sessions.values(), key=lambda s: s["created_at"], reverse=True)

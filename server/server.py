@@ -400,6 +400,11 @@ def openai_passthrough():
 def api_history():
     return jsonify({"entries": get_history().list_all()})
 
+@app.route("/api/history/sessions", methods=["GET"])
+def api_history_sessions():
+    """Group history entries by synthesis session for the recent-sessions UI."""
+    return jsonify({"sessions": get_history().list_sessions()})
+
 @app.route("/api/history/<entry_id>", methods=["DELETE"])
 def api_history_delete(entry_id):
     ok = get_history().delete(entry_id)
