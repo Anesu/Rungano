@@ -609,7 +609,9 @@ async function saveM3u() {
 
 // ── Drag-and-drop .txt files ────────────────────────────────────────────
 function initDragDrop() {
+  if (!els.textInput) return;
   const panel = els.textInput.closest('.panel-input');
+  if (!panel) return;
   const textarea = els.textInput;
   panel.addEventListener('dragover', (e) => { e.preventDefault(); panel.classList.add('drag-over'); });
   panel.addEventListener('dragleave', () => panel.classList.remove('drag-over'));
