@@ -40,7 +40,7 @@ from higgs.history import HistoryStore
 from higgs.system import gpu_info, wsl_path
 from higgs.text import TextChunker
 from higgs.voices import VoiceCatalog
-from higgs.audio import apply_gain, trim_silence  # noqa: E402
+from higgs.audio import apply_gain, concat_wavs, trim_silence  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 logger = logging.getLogger("higgs-server")
@@ -407,6 +407,25 @@ def serve_audio(filename):
     if not safe.exists():
         return jsonify({"error": "Not found"}), 404
     return send_from_directory(OUTPUT_DIR, filename)
+
+# ── Export ────────────────────────────────────────────────
+@app.route("/api/export/wav", methods=["POST"])
+def api_export_wav():
+    """Concatenate multiple history entries into a single WAV download."""
+    data = request.get_json(force=True)
+    ids = data.get("ids") or []
+    if not ids:
+        return jsonify({"error": "Field 'ids' is required"}), 400
+    wavs = []
+    for eid in ids:
+        f = HISTORY_DIR / f"{eid}.wav"
+        if f.exists():
+            wavs.append(f.read_bytes())
+    if not wavs:
+        return jsonify({"error": "No audio files found for the given ids"}), 404
+    merged = concat_wavs(wavs, crossfade_ms=0, gap_ms=300)
+    return Response(merged, mimetype="audio/wav",
+                    headers={"Content-Disposition": "attachment; filename=rungano-export.wav"})
 
 # ── Entrypoint ───────────────────────────────────────────
 def main():

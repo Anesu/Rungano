@@ -42,6 +42,9 @@ const els = {
   btnSettingsClose: $('btn-settings-close'), btnSettingsReset: $('btn-settings-reset'),
   // Theme
   btnTheme: $('btn-theme'),
+  // Help / Export / Playlist
+  btnInfo: $('btn-info'), tooltipPanel: $('tooltip-panel'),
+  btnExportWav: $('btn-export-wav'), btnSaveM3u: $('btn-save-m3u'),
 };
 
 // ── Label mapping (token → human-readable) ──────────────────────────
@@ -213,7 +216,10 @@ function renderSentenceList() {
     li.appendChild(idx); li.appendChild(txt); li.appendChild(meta);
     els.sentenceList.appendChild(li);
   }
-  els.btnPlayAll.hidden = !state.sentences.some(s => s.status === 'done');
+  const hasDone = state.sentences.some(s => s.status === 'done');
+  els.btnPlayAll.hidden = !hasDone;
+  els.btnExportWav.hidden = !hasDone;
+  els.btnSaveM3u.hidden = !hasDone;
   highlightCurrentSentence();
 }
 
@@ -387,13 +393,12 @@ function _enterSynthesisingState() {
   els.btnSynth.classList.add('btn-danger');
   els.spinnerSynth.hidden = false;
   els.progressWrap.hidden = false;
-  // Hide audio player until first sentence lands
   els.audioPlayer.hidden = true;
   els.audioPlaceholder.hidden = false;
 }
 
 function _leaveSynthesisingState() {
-  els.btnSynth.textContent = 'Synthesise All';
+  els.btnSynth.textContent = 'Synthesise';
   els.btnSynth.classList.remove('btn-danger');
   els.spinnerSynth.hidden = true;
 }
@@ -536,6 +541,85 @@ async function clearAllHistory() {
   } catch (e) { toast('Failed to clear history.', true); }
 }
 
+// ── Export WAV ─────────────────────────────────────────────────────────
+async function exportAllWav() {
+  const done = state.sentences.filter(s => s.status === 'done');
+  if (!done.length) { toast('No sentences to export.', true); return; }
+  try {
+    const ids = done.map(s => s.file.split('/').pop().replace('.wav', ''));
+    const res = await fetch(`${state.flaskUrl}/api/export/wav`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    if (!res.ok) throw new Error('Export failed');
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'rungano-export.wav';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+    toast(`Exported ${done.length} sentences as WAV.`);
+  } catch (e) { toast(`Export failed: ${e.message}`, true); }
+}
+
+// ── Save .m3u playlist ──────────────────────────────────────────────────
+async function saveM3u() {
+  const done = state.sentences.filter(s => s.status === 'done');
+  if (!done.length) { toast('No sentences to save.', true); return; }
+  try {
+    // Get output directory from main process
+    let outputDir = '';
+    try { const cfg = await window.higgs?.getConfig(); outputDir = cfg?.outputDir || ''; } catch {}
+    const lines = ['#EXTM3U'];
+    for (const s of done) {
+      const name = (s.text || `Sentence ${s.index + 1}`).slice(0, 60);
+      lines.push(`#EXTINF:${Math.ceil(s.elapsed_sec || 2)},${name}`);
+      if (outputDir) {
+        const fname = s.file.split('/').pop();
+        lines.push(`${outputDir}\\history\\${fname}`.replace(/\//g, '\\'));
+      } else {
+        lines.push(`${state.flaskUrl}${s.file}`);
+      }
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'audio/x-mpegurl' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'rungano-playlist.m3u';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+    toast(`Saved .m3u with ${done.length} tracks.`);
+  } catch (e) { toast(`Save failed: ${e.message}`, true); }
+}
+
+// ── Drag-and-drop .txt files ────────────────────────────────────────────
+function initDragDrop() {
+  const panel = els.textInput.closest('.panel-input');
+  const textarea = els.textInput;
+  panel.addEventListener('dragover', (e) => { e.preventDefault(); panel.classList.add('drag-over'); });
+  panel.addEventListener('dragleave', () => panel.classList.remove('drag-over'));
+  panel.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    panel.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (!file || !file.name.endsWith('.txt')) { toast('Drop a .txt file.', true); return; }
+    const text = await file.text();
+    textarea.value = text;
+    els.charCount.textContent = text.length;
+    toast(`Loaded ${file.name} (${text.length} chars).`);
+  });
+}
+
+// ── Info tooltip ────────────────────────────────────────────────────────
+function toggleTooltip() {
+  els.tooltipPanel.hidden = !els.tooltipPanel.hidden;
+}
+document.addEventListener('click', (e) => {
+  if (!els.tooltipPanel.hidden && !e.target.closest('#tooltip-panel') && e.target !== els.btnInfo) {
+    els.tooltipPanel.hidden = true;
+  }
+});
+
 // ── Recent generations ─────────────────────────────────────────────────
 async function loadRecentGenerations() {
   try {
@@ -616,6 +700,13 @@ async function init() {
   els.btnTheme.addEventListener('click', toggleTheme);
   // Clear history
   els.btnClearHistory.addEventListener('click', clearAllHistory);
+  // Help tooltip
+  els.btnInfo.addEventListener('click', (e) => { e.stopPropagation(); toggleTooltip(); });
+  // Export / Save
+  els.btnExportWav.addEventListener('click', exportAllWav);
+  els.btnSaveM3u.addEventListener('click', saveM3u);
+  // Drag-and-drop
+  initDragDrop();
 
   // Auto-advance: when current audio ends, play next
   els.audioPlayer.addEventListener('ended', playNextSentence);
