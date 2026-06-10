@@ -10,73 +10,80 @@
 <body>
   <div id="app">
 
+    <!-- ═══ Status Bar ═══════════════════════════════════════════════ -->
     <header class="status-bar">
       <div class="brand">
         <span class="brand-mark">RUNGANO</span><span class="brand-sub">TTS</span>
       </div>
-      <div class="status-pill" id="status-server" title="Server status">
+      <div class="status-pill" title="Server status">
         <span class="dot" id="dot-server"></span>
         <span class="status-text" id="text-server">Connecting…</span>
       </div>
-      <div class="status-pill" id="status-sglang" title="SGLang-Omni status">
+      <div class="status-pill vram-pill" title="GPU VRAM">
         <span class="dot" id="dot-sglang"></span>
         <span class="status-text" id="text-sglang">Model: unknown</span>
+        <div class="vram-gauge-wrap" id="vram-gauge-wrap" hidden>
+          <div class="vram-gauge"><div class="vram-fill" id="vram-fill"></div></div>
+          <span class="vram-label" id="vram-label"></span>
+        </div>
       </div>
       <button class="icon-btn" id="btn-restart" title="Restart servers">⟳</button>
       <button class="icon-btn" id="btn-output" title="Open output folder">📁</button>
     </header>
 
+    <!-- ═══ Main 3-column grid ═══════════════════════════════════════ -->
     <main class="main">
-      <!-- LEFT: Input + Controls -->
+
+      <!-- LEFT: Text Input -->
       <section class="panel panel-input">
         <label class="field-label" for="text-input">Text to synthesise</label>
         <textarea id="text-input" placeholder="Type or paste your text. Each sentence will be synthesized individually for best quality." spellcheck="false"></textarea>
-        <div class="char-count"><span id="char-count">0</span> chars</div>
-
-        <div class="voice-row">
-          <div class="control-group" style="flex:1">
-            <label class="field-label" for="voice-select">Voice</label>
-            <div class="row">
-              <select id="voice-select"><option>Loading…</option></select>
-              <button class="btn btn-sm btn-ghost" id="btn-add-voice" title="Upload a voice reference">+ Clone</button>
-            </div>
-          </div>
-        </div>
-
-        <details class="advanced">
-          <summary>Emotion, Style &amp; Effects</summary>
-          <div class="control-group">
-            <label class="field-label">Emotion</label>
-            <div class="chip-grid" id="emotion-chips" data-category="emotion"></div>
-          </div>
-          <div class="control-group">
-            <label class="field-label">Style</label>
-            <div class="chip-row" id="style-chips" data-category="style"></div>
-          </div>
-          <div class="control-group">
-            <label class="field-label">Prosody</label>
-            <div class="chip-row" id="prosody-chips" data-category="prosody"></div>
-          </div>
-          <div class="control-group">
-            <label class="field-label">Sound effects</label>
-            <div class="chip-row" id="sfx-chips" data-category="sfx"></div>
-          </div>
-        </details>
-
-        <div class="actions">
-          <button class="btn btn-primary" id="btn-synth">
-            <span class="spinner" id="spinner-synth" hidden></span>
-            <span class="btn-label">Synthesise All</span>
-          </button>
-          <div class="progress-wrap" id="progress-wrap" hidden>
-            <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
-            <span class="muted" id="progress-text"></span>
-          </div>
-        </div>
       </section>
 
-      <!-- RIGHT: Playlist / Output -->
+      <!-- MIDDLE: Voice + Controls -->
+      <section class="panel panel-controls">
+        <label class="field-label">Voice</label>
+        <div class="voice-card" id="voice-card">
+          <div class="voice-card-header">
+            <select id="voice-select"><option>Loading…</option></select>
+            <button class="btn btn-sm btn-ghost" id="btn-add-voice" title="Upload a voice reference">+ Clone</button>
+          </div>
+          <div class="voice-card-detail" id="voice-card-detail" hidden>
+            <span class="voice-kind-badge" id="voice-kind-badge"></span>
+            <span class="voice-transcript" id="voice-transcript"></span>
+          </div>
+        </div>
+
+        <div class="chip-section">
+          <label class="field-label">Emotion <span class="chip-count" id="emotion-count"></span></label>
+          <div class="chip-grid" id="emotion-chips" data-category="emotion"></div>
+        </div>
+
+        <div class="chip-section">
+          <label class="field-label">Style <span class="chip-count" id="style-count"></span></label>
+          <div class="chip-row" id="style-chips" data-category="style"></div>
+        </div>
+
+        <div class="chip-section">
+          <label class="field-label">Prosody <span class="chip-count" id="prosody-count"></span></label>
+          <div class="chip-row" id="prosody-chips" data-category="prosody"></div>
+        </div>
+
+        <div class="chip-section">
+          <label class="field-label">Sound effects <span class="chip-count" id="sfx-count"></span></label>
+          <div class="chip-row" id="sfx-chips" data-category="sfx"></div>
+        </div>
+
+        <div class="settings-summary" id="settings-summary">No effects selected</div>
+      </section>
+
+      <!-- RIGHT: Playlist + Output -->
       <section class="panel panel-output">
+        <div class="recent-section" id="recent-section" hidden>
+          <label class="field-label">Recent</label>
+          <div class="recent-list" id="recent-list"></div>
+        </div>
+
         <div class="output-head">
           <span class="field-label">Playlist</span>
           <div class="row">
@@ -91,11 +98,24 @@
         </div>
 
         <ul class="sentence-list" id="sentence-list"></ul>
-        <p class="shortcuts-hint" id="shortcuts-hint">Space: play/pause &nbsp; ← →: prev/next &nbsp; Esc: stop &nbsp; Ctrl+Enter: synthesise</p>
+        <p class="shortcuts-hint">Space: play/pause &nbsp; ← →: prev/next &nbsp; Esc: stop &nbsp; Ctrl+Enter: synthesise</p>
       </section>
     </main>
 
-    <!-- Voice Clone Modal -->
+    <!-- ═══ Bottom action bar ═══════════════════════════════════════ -->
+    <footer class="action-bar">
+      <button class="btn btn-primary" id="btn-synth">
+        <span class="spinner" id="spinner-synth" hidden></span>
+        <span class="btn-label">Synthesise All</span>
+      </button>
+      <span class="char-count"><span id="char-count">0</span> chars</span>
+      <div class="progress-wrap" id="progress-wrap" hidden>
+        <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+        <span class="muted" id="progress-text"></span>
+      </div>
+    </footer>
+
+    <!-- ═══ Voice Clone Modal ═══════════════════════════════════════ -->
     <div class="modal" id="clone-modal" hidden>
       <div class="modal-card">
         <h3>Clone a voice</h3>

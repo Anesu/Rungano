@@ -26,6 +26,14 @@ const els = {
   cloneModal: $('clone-modal'), cloneName: $('clone-name'), cloneAudio: $('clone-audio'),
   cloneTranscript: $('clone-transcript'), btnCloneCancel: $('btn-clone-cancel'), btnCloneSave: $('btn-clone-save'),
   toast: $('toast'),
+  // New layout elements
+  voiceCardDetail: $('voice-card-detail'), voiceKindBadge: $('voice-kind-badge'),
+  voiceTranscript: $('voice-transcript'),
+  settingsSummary: $('settings-summary'),
+  recentSection: $('recent-section'), recentList: $('recent-list'),
+  vramGaugeWrap: $('vram-gauge-wrap'), vramFill: $('vram-fill'), vramLabel: $('vram-label'),
+  emotionCount: $('emotion-count'), styleCount: $('style-count'),
+  prosodyCount: $('prosody-count'), sfxCount: $('sfx-count'),
 };
 
 // ── State ──────────────────────────────────────────────────────────────
@@ -85,6 +93,8 @@ function handleChipClick(parent, chip, item, mode) {
     if (state.sfx.has(value)) { state.sfx.delete(value); }
     else { const sug = item.suggested || value; const u = prompt(`Onomatopoeia for "${value}"?`, sug); state.sfx.set(value, u || sug); }
   }
+  updateSettingsSummary();
+  updateChipCounts();
 }
 
 async function initChips() {
@@ -95,9 +105,24 @@ async function initChips() {
     buildChipRow(els.prosodyChips, catalogue.prosody, 'multi-prosody');
     buildChipRow(els.sfxChips, catalogue.sfx, 'multi-sfx');
   } catch (e) {
-    // Server may not be ready yet — retry when IPC health event signals SGLang ready.
     console.warn('Controls catalogue not available:', e.message);
   }
+}
+
+function updateSettingsSummary() {
+  const parts = [];
+  if (state.emotion) parts.push(`emotion: ${state.emotion}`);
+  if (state.style) parts.push(`style: ${state.style}`);
+  if (state.prosody.size) parts.push(`prosody: ${[...state.prosody].join(', ')}`);
+  if (state.sfx.size) parts.push(`sfx: ${[...state.sfx.keys()].join(', ')}`);
+  els.settingsSummary.textContent = parts.length ? parts.join(' · ') : 'No effects selected';
+}
+
+function updateChipCounts() {
+  els.emotionCount.textContent = state.emotion ? '(1)' : '';
+  els.styleCount.textContent = state.style ? '(1)' : '';
+  els.prosodyCount.textContent = state.prosody.size ? `(${state.prosody.size})` : '';
+  els.sfxCount.textContent = state.sfx.size ? `(${state.sfx.size})` : '';
 }
 
 // ── Voices ────────────────────────────────────────────────────────────
@@ -108,7 +133,19 @@ async function loadVoices() {
     for (const v of voices) { const opt = document.createElement('option'); opt.value = v.id; opt.textContent = `${v.name}${v.kind === 'custom' ? '  •  custom' : ''}`; els.voiceSelect.appendChild(opt); }
     if (voices.length && !voices.find(v => v.id === state.selectedVoice)) state.selectedVoice = voices[0].id;
     els.voiceSelect.value = state.selectedVoice;
+    updateVoiceCard();
   } catch (e) { els.voiceSelect.innerHTML = '<option>Server unavailable</option>'; }
+}
+
+function updateVoiceCard() {
+  const voice = state.voices.find(v => v.id === state.selectedVoice);
+  if (!voice) { els.voiceCardDetail.hidden = true; return; }
+  els.voiceCardDetail.hidden = false;
+  els.voiceKindBadge.textContent = voice.kind || 'preset';
+  els.voiceKindBadge.style.background = voice.kind === 'custom'
+    ? 'rgba(63,185,80,0.12)' : 'rgba(88,166,255,0.12)';
+  els.voiceKindBadge.style.color = voice.kind === 'custom' ? 'var(--good)' : 'var(--accent)';
+  els.voiceTranscript.textContent = (voice.transcript || 'No reference transcript').slice(0, 100);
 }
 
 // ── Sentence playlist ─────────────────────────────────────────────────
@@ -364,14 +401,26 @@ function updateHealthUI(flaskReady, sglangReady, flaskBody) {
     els.dotSglang.className = 'dot ok';
     const models = flaskBody?.sglang_models || [];
     const gpu = flaskBody?.gpu || {};
-    const vram = gpu.vram_free_mb ? ` (${(gpu.vram_free_mb/1024).toFixed(1)}GB free)` : '';
-    els.textSglang.textContent = `Model: ${models[0] || 'ready'}${vram}`;
+    const modelName = models[0] ? models[0].split('/').pop() : 'ready';
+    els.textSglang.textContent = modelName;
+    // VRAM gauge
+    if (gpu.vram_total_mb) {
+      els.vramGaugeWrap.hidden = false;
+      const freeGB = gpu.vram_free_mb / 1024;
+      const pct = (gpu.vram_free_mb / gpu.vram_total_mb) * 100;
+      els.vramFill.style.width = `${pct}%`;
+      els.vramLabel.textContent = `${freeGB.toFixed(1)}GB`;
+      if (freeGB > 2) els.vramFill.style.background = 'var(--vram-green)';
+      else if (freeGB > 1) els.vramFill.style.background = 'var(--vram-yellow)';
+      else els.vramFill.style.background = 'var(--vram-red)';
+    }
     if (!state.sglangReady) {
       state.sglangReady = true;
-      initChips();  // controls endpoint may have been unreachable during cold start
+      initChips();
     }
   } else {
     els.dotSglang.className = 'dot bad'; els.textSglang.textContent = 'Model: not ready';
+    els.vramGaugeWrap.hidden = true;
     state.sglangReady = false;
   }
 }
@@ -401,6 +450,39 @@ async function saveClone() {
   } catch (e) { toast(`Save failed: ${e.message}`, true); }
 }
 
+// ── Recent generations ─────────────────────────────────────────────────
+async function loadRecentGenerations() {
+  try {
+    const { entries } = await api('/api/history');
+    if (!entries.length) return;
+    els.recentSection.hidden = false;
+    els.recentList.innerHTML = '';
+    const recent = entries.slice(0, 5);
+    for (const e of recent) {
+      const div = document.createElement('div');
+      div.className = 'recent-item';
+      const text = document.createElement('span'); text.className = 'r-text';
+      text.textContent = (e.text || '').slice(0, 80);
+      text.title = e.text;
+      const meta = document.createElement('span'); meta.className = 'r-meta';
+      const age = Math.round((Date.now() / 1000 - e.created_at) / 60);
+      meta.textContent = age < 1 ? 'just now' : age < 60 ? `${age}m ago` : `${Math.round(age / 60)}h ago`;
+      const play = document.createElement('span'); play.className = 'r-play'; play.textContent = '▶';
+      div.appendChild(text); div.appendChild(meta); div.appendChild(play);
+      div.addEventListener('click', () => {
+        const file = e.file.startsWith('/') ? e.file : `/audio/${e.file}`;
+        els.audioPlayer.src = state.flaskUrl + file;
+        els.audioPlayer.hidden = false;
+        els.audioPlaceholder.hidden = true;
+        els.audioPlayer.play().catch(() => {});
+      });
+      els.recentList.appendChild(div);
+    }
+  } catch (e) {
+    // History endpoint may not be available yet — silent
+  }
+}
+
 // ── Init ──────────────────────────────────────────────────────────────
 async function init() {
   // Fetch server URL from Electron main process (IPC). Falls back to default
@@ -417,9 +499,10 @@ async function init() {
   // the IPC health handler will retry initChips() when SGLang transitions ready.
   initChips();
   loadVoices();
+  loadRecentGenerations();
 
   els.textInput.addEventListener('input', () => { els.charCount.textContent = els.textInput.value.length; });
-  els.voiceSelect.addEventListener('change', () => { state.selectedVoice = els.voiceSelect.value; });
+  els.voiceSelect.addEventListener('change', () => { state.selectedVoice = els.voiceSelect.value; updateVoiceCard(); });
   els.btnSynth.addEventListener('click', () => {
     if (state._abortController) { cancelSynthesis(); }
     else { synthesise(); }
