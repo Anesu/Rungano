@@ -30,6 +30,18 @@
       "LICENSE.md",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "server",
+        "to": "server",
+        "filter": ["**/*", "!.venv/**", "!**/__pycache__/**", "!tests/**"]
+      },
+      {
+        "from": "scripts",
+        "to": "scripts",
+        "filter": ["**/*", "!__pycache__/**"]
+      }
+    ],
     "win": {
       "target": [
         {

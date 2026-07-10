@@ -25,13 +25,22 @@ const https = require('https');
 const { URL } = require('url');
 
 // ── Paths ─────────────────────────────────────────────────────────────
-const ROOT = path.resolve(__dirname, '..');
-const SERVER_DIR = path.join(ROOT, 'server');
-const SCRIPTS_DIR = path.join(ROOT, 'scripts');
-const OUTPUT_DIR = path.join(ROOT, 'output');
+// Three roots, which coincide in a dev checkout but diverge when packaged:
+//   APP_ROOT  — bundled app code (inside app.asar when packaged)
+//   RES_ROOT  — real on-disk files (extraResources: server/, scripts/)
+//   DATA_ROOT — user-writable data (output/, voices/); Documents\Rungano
+//               when packaged so a portable exe doesn't write into its
+//               throwaway unpack dir
+const APP_ROOT = path.resolve(__dirname, '..');
+const RES_ROOT = app.isPackaged ? process.resourcesPath : APP_ROOT;
+const DATA_ROOT = app.isPackaged ? path.join(app.getPath('documents'), 'Rungano') : APP_ROOT;
+const SERVER_DIR = path.join(RES_ROOT, 'server');
+const SCRIPTS_DIR = path.join(RES_ROOT, 'scripts');
+const OUTPUT_DIR = path.join(DATA_ROOT, 'output');
+const VOICES_DIR = path.join(DATA_ROOT, 'voices');
 const ICON_PATH = path.join(__dirname, 'assets', 'icon.ico');
 const TRAY_ICON_PATH = path.join(__dirname, 'assets', 'tray-icon.png');
-const RENDERER_INDEX = path.join(ROOT, 'renderer', 'index.html');
+const RENDERER_INDEX = path.join(APP_ROOT, 'renderer', 'index.html');
 
 // ── Port allocation ──────────────────────────────────────────────────
 // SGLang-Omni:  8000  (OpenAI-compatible /v1/audio/speech)
@@ -160,7 +169,7 @@ function startSglangOmni() {
   }
   console.log('[higgs] launching SGLang-Omni via', bat);
   sglangProcess = spawn(bat, [], {
-    cwd: ROOT,
+    cwd: RES_ROOT,
     windowsHide: true,
     shell: true,
   });
@@ -189,7 +198,7 @@ function startFlaskProxy() {
   console.log('[higgs] launching Flask proxy:', venvPy, 'server.py');
   flaskProcess = spawn(venvPy, ['server.py', '--port', String(FLASK_PORT), '--sglang-url', SGLANG_URL], {
     cwd: SERVER_DIR,
-    env: { ...process.env, HIGGS_OUTPUT_DIR: OUTPUT_DIR },
+    env: { ...process.env, HIGGS_OUTPUT_DIR: OUTPUT_DIR, HIGGS_VOICES_DIR: VOICES_DIR },
     windowsHide: true,
   });
   flaskProcess.stdout.on('data', (d) => process.stdout.write(`[flask] ${d}`));
@@ -277,7 +286,7 @@ ipcMain.handle('higgs:show-error', async (_e, title, body) => {
 
 // ── First-run shortcut creation ──────────────────────────────────────
 function createShortcutsIfFirstRun() {
-  const marker = path.join(ROOT, '.shortcuts-created');
+  const marker = path.join(DATA_ROOT, '.shortcuts-created');
   if (fs.existsSync(marker)) return;
 
   // The shortcut target is wscript.exe running launch-higgs.vbs.
@@ -292,7 +301,7 @@ function createShortcutsIfFirstRun() {
     const ps = path.join(SCRIPTS_DIR, 'create-shortcut.ps1');
     if (!fs.existsSync(ps)) return;
     exec(
-      `powershell -ExecutionPolicy Bypass -File "${ps}" -Target "${targetVbs}" -Workdir "${ROOT}" -IconPath "${ICON_PATH}"`,
+      `powershell -ExecutionPolicy Bypass -File "${ps}" -Target "${targetVbs}" -Workdir "${RES_ROOT}" -IconPath "${ICON_PATH}"`,
       { windowsHide: true },
       (err) => {
         if (!err) {
@@ -309,9 +318,11 @@ function createShortcutsIfFirstRun() {
 
 // ── App lifecycle ────────────────────────────────────────────────────
 app.whenReady().then(async () => {
-  // 1. Ensure the output dir exists (date subdirs are created per synthesis;
-  //    voices live in /voices at repo root, not under output/)
-  if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+  // 1. Ensure writable data dirs exist (date subdirs under output/ are
+  //    created per synthesis)
+  for (const d of [OUTPUT_DIR, VOICES_DIR]) {
+    if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+  }
 
   // 2. Create tray (visible immediately, shows "checking…" until servers respond)
   createTray();

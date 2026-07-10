@@ -48,7 +48,7 @@ logger = logging.getLogger("higgs-server")
 
 # ── Paths ────────────────────────────────────────────────
 OUTPUT_DIR = Path(os.environ.get("HIGGS_OUTPUT_DIR", SERVER_DIR.parent / "output"))
-VOICES_DIR = SERVER_DIR.parent / "voices"  # input assets, not inside output
+VOICES_DIR = Path(os.environ.get("HIGGS_VOICES_DIR", SERVER_DIR.parent / "voices"))  # input assets, not inside output
 VOICES_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
