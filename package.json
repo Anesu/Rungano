@@ -9,6 +9,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
+    "test": "server\\.venv\\Scripts\\python.exe -m pytest server/tests -q",
     "build:win": "electron-builder --win",
     "build:portable": "electron-builder --win portable"
   },

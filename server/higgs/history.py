@@ -90,13 +90,16 @@ class HistoryStore:
 
     def delete(self, entry_id: str) -> bool:
         """Remove both JSON and WAV for an entry across all date dirs."""
+        deleted = False
         for date_dir in self.output_dir.iterdir():
             if not date_dir.is_dir():
                 continue
             for f in date_dir.glob(f"*-{entry_id}.*"):
                 f.unlink()
-                return True
-        return False
+                deleted = True
+            if deleted:
+                break  # both files live in the same date dir
+        return deleted
 
     def resolve_path(self, entry_id: str) -> Path | None:
         """Return the WAV file path for an entry ID, or None if not found.
