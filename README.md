@@ -8,7 +8,7 @@
 
 ## What this is
 
-Higgs TTS wraps the [SGLang-Omni](https://github.com/sgl-project/sglang-omni)
+Rungano wraps the [SGLang-Omni](https://github.com/sgl-project/sglang-omni)
 serving stack in a real desktop application (Electron) with a clean dark UI,
 system-tray integration, and a one-click launcher. It exposes the **full**
 control surface of the Higgs v3 model:
@@ -24,7 +24,7 @@ control surface of the Higgs v3 model:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Electron Desktop App  (C:\Users\Anesu\Documents\GitHub\Higgs-TTS\)  │
+│  Electron Desktop App  (this repo)                          │
 │  ┌──────────────────┐    IPC    ┌────────────────────────┐  │
 │  │  Renderer (UI)   │◄────────►│  Main process          │  │
 │  │  HTML/CSS/JS     │          │  - Window mgmt         │  │

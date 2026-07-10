@@ -1,3 +1,6 @@
+# Runtime markers
+.shortcuts-created
+
 # Python
 __pycache__/
 *.py[cod]
