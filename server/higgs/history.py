@@ -48,12 +48,14 @@ class HistoryStore:
         references,
         file_path: Path,
         elapsed_sec: float,
+        run_id: str | None = None,
     ) -> str:
         """Persist a synthesis entry. Writes to today's date directory."""
         today = self._today()
         prefix = self._entry_prefix(entry_id)
         meta = {
             "id": entry_id,
+            "run_id": run_id,
             "text": text,
             "voice_id": voice_id,
             "references": references,
@@ -123,10 +125,11 @@ class HistoryStore:
         return d / f"{prefix}.wav"
 
     def list_sessions(self) -> list[dict]:
-        """Group entries by synthesis session (date folder + 4-char time prefix).
-        
-        Each session is one 'Synthesise' click — all entries share the same
-        HHMM prefix within a date folder. Returns newest sessions first.
+        """Group entries by synthesis session. Returns newest sessions first.
+
+        Each session is one 'Synthesise' click. Entries carry a run_id since
+        v0.2; legacy entries without one fall back to grouping by their HHMM
+        minute prefix within a date folder.
         """
         sessions: dict[str, dict] = {}
         for date_dir in sorted(self.output_dir.iterdir(), reverse=True):
@@ -140,25 +143,29 @@ class HistoryStore:
                     entry = json.loads(jf.read_text(encoding="utf-8"))
                 except Exception:
                     continue
-                # Session key = date + first 4 chars of HHMMSS prefix
-                fname = jf.stem  # e.g. "234449-abc123def456"
-                prefix = fname[:6] if '-' in fname else fname[:4]
-                key = f"{date_str}/{prefix}"
+                key = entry.get("run_id") or f"{date_str}/{jf.stem[:4]}"
                 if key not in sessions:
                     sessions[key] = {
                         "date": date_str,
-                        "prefix": prefix,
                         "first_text": entry.get("text", ""),
                         "sentence_count": 0,
                         "total_elapsed_sec": 0.0,
                         "created_at": entry.get("created_at", 0),
                         "ids": [],
+                        "files": [],
                     }
                 sessions[key]["sentence_count"] += 1
                 sessions[key]["total_elapsed_sec"] += entry.get("elapsed_sec", 0)
                 sessions[key]["ids"].append(entry.get("id", ""))
+                if entry.get("file"):
+                    sessions[key]["files"].append(entry["file"])
                 # Keep the earliest (first sentence) as display text
                 if entry.get("created_at", 0) < sessions[key]["created_at"]:
                     sessions[key]["created_at"] = entry["created_at"]
                     sessions[key]["first_text"] = entry.get("text", "")
-        return sorted(sessions.values(), key=lambda s: s["created_at"], reverse=True)
+        out = sorted(sessions.values(), key=lambda s: s["created_at"], reverse=True)
+        # json_files iterate newest-first; playback wants synthesis order
+        for s in out:
+            s["ids"].reverse()
+            s["files"].reverse()
+        return out

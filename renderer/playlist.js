@@ -84,3 +84,34 @@ export async function openInVlc(s) {
     }
   } catch {}
 }
+
+/**
+ * Build an .m3u from tracks [{file: '/audio/<rel>', title, seconds}].
+ * With open=true and a known output dir, writes the file there and opens it
+ * in the system player; otherwise falls back to a browser download.
+ * Returns true if opened in the system player.
+ */
+export async function writeM3u(tracks, { open = false, filename = 'rungano-playlist.m3u' } = {}) {
+  let outputDir = '';
+  try { const cfg = await window.higgs?.getConfig(); outputDir = cfg?.outputDir || ''; } catch {}
+  const lines = ['#EXTM3U'];
+  for (const t of tracks) {
+    lines.push(`#EXTINF:${Math.ceil(t.seconds || 2)},${(t.title || '').slice(0, 60)}`);
+    const rel = t.file.replace(/^\/audio\//, '');
+    lines.push(outputDir ? `${outputDir}\\${rel}`.replace(/\//g, '\\') : `${state.flaskUrl}/audio/${rel}`);
+  }
+  const content = lines.join('\n');
+  if (open && outputDir) {
+    const m3uPath = `${outputDir}\\${filename}`.replace(/\//g, '\\');
+    await window.higgs?.writeFile(m3uPath, content);
+    window.higgs?.openFile(m3uPath);
+    return true;
+  }
+  const blob = new Blob([content], { type: 'audio/x-mpegurl' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+  return false;
+}

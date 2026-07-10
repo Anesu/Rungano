@@ -4,6 +4,19 @@
 import { state, els } from './state.js';
 import { toast } from './toast.js';
 
+const SETTINGS_KEY = 'rungano-model-settings';
+
+/** Restore persisted model parameters into state. Call once at startup. */
+export function loadSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    if (typeof saved.temperature === 'number') state.temperature = saved.temperature;
+    if (typeof saved.topK === 'number') state.topK = saved.topK;
+    if (typeof saved.topP === 'number') state.topP = saved.topP;
+    if (typeof saved.maxTokens === 'number') state.maxTokens = saved.maxTokens;
+  } catch {}
+}
+
 export function openSettingsModal() {
   els.settingTemperature.value = state.temperature;
   els.settingTopK.value = state.topK;
@@ -39,6 +52,10 @@ export function saveSettings() {
   state.topK = parseInt(els.settingTopK.value);
   state.topP = parseFloat(els.settingTopP.value);
   state.maxTokens = parseInt(els.settingTokens.value);
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+    temperature: state.temperature, topK: state.topK,
+    topP: state.topP, maxTokens: state.maxTokens,
+  }));
   const defaultVoice = els.settingDefaultVoice.value;
   if (defaultVoice) localStorage.setItem('rungano-default-voice', defaultVoice);
   else localStorage.removeItem('rungano-default-voice');

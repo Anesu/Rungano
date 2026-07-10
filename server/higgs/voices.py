@@ -107,8 +107,13 @@ class VoiceCatalog:
         voice_dir = self.voices_dir / language / safe_name
         voice_dir.mkdir(parents=True, exist_ok=True)
 
-        # Write reference audio (consistent filename)
-        (voice_dir / "reference.wav").write_bytes(audio_bytes)
+        # Consistent basename, but keep the real container format — writing
+        # an .mp3 upload to "reference.wav" would lie to the inference server.
+        ext = Path(audio_filename).suffix.lower()
+        if ext not in (".wav", ".mp3", ".flac", ".ogg", ".m4a"):
+            ext = ".wav"
+        ref_name = f"reference{ext}"
+        (voice_dir / ref_name).write_bytes(audio_bytes)
 
         vid = uuid.uuid4().hex[:10]
         meta = {
@@ -116,7 +121,7 @@ class VoiceCatalog:
             "name": name,
             "language": language,
             "transcript": transcript,
-            "audio_filename": "reference.wav",
+            "audio_filename": ref_name,
             "created_at": time.time(),
         }
         (voice_dir / "meta.json").write_text(

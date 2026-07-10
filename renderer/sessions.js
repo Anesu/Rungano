@@ -4,6 +4,7 @@
 import { state, els } from './state.js';
 import { api } from './api.js';
 import { toast } from './toast.js';
+import { writeM3u } from './playlist.js';
 
 export async function loadRecentSessions() {
   try {
@@ -56,7 +57,14 @@ export async function loadRecentSessions() {
 }
 
 async function openSessionInVlc(s) {
-  await exportSessionWav(s);
+  const files = s.files || [];
+  if (!files.length) { await exportSessionWav(s); return; } // legacy entries
+  const tracks = files.map((f, i) => ({
+    file: `/audio/${f}`,
+    title: i === 0 ? (s.first_text || `Sentence 1`) : `Sentence ${i + 1}`,
+  }));
+  const opened = await writeM3u(tracks, { open: true, filename: `rungano-session-${s.date}.m3u` });
+  if (!opened) toast('Saved session playlist.');
 }
 
 async function exportSessionWav(s) {
@@ -82,11 +90,15 @@ async function exportSessionWav(s) {
   }
 }
 
-function openSessionFolder(s) {
-  try { window.higgs?.openFile(`${s.date}`); } catch {}
+async function openSessionFolder(s) {
+  try {
+    const cfg = await window.higgs?.getConfig();
+    if (cfg?.outputDir) window.higgs?.openFile(`${cfg.outputDir}\\${s.date}`);
+  } catch {}
 }
 
 export async function clearAllHistory() {
+  if (!confirm('Delete ALL synthesis history and generated audio files? This cannot be undone.')) return;
   try {
     const { entries } = await api('/api/history');
     for (const e of entries) {

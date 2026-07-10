@@ -73,12 +73,10 @@ export async function synthesise() {
           state.sentences = Array.from({ length: totalSentences }, (_, i) => ({
             index: i, text: '', chars: 0, status: 'pending',
           }));
-          els.progressText.textContent = `Sentence 0 of ${totalSentences}`;
           updateProgress(0, totalSentences);
         } else if (event.type === 'sentence') {
           state.sentences[event.index] = { ...event, status: 'done' };
           doneCount++;
-          els.progressText.textContent = `Sentence ${doneCount} of ${totalSentences}`;
           updateProgress(doneCount, totalSentences);
           renderSentenceList();
         } else if (event.type === 'error') {
@@ -119,7 +117,7 @@ export function cancelSynthesis() {
 export function updateProgress(done, total) {
   const pct = total > 0 ? (done / total * 100) : 0;
   els.progressFill.style.width = `${pct}%`;
-  els.progressText.textContent = `${done} / ${total}`;
+  els.progressText.textContent = `Sentence ${done} of ${total}`;
   if (done >= total) setTimeout(() => { els.progressWrap.hidden = true; }, 3000);
 }
 

@@ -19,7 +19,7 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, dialog, shell, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { spawn, exec } = require('child_process');
+const { spawn, exec, execSync } = require('child_process');
 const http = require('http');
 const https = require('https');
 const { URL } = require('url');
@@ -180,6 +180,10 @@ function startFlaskProxy() {
     : path.join(SERVER_DIR, '.venv', 'bin', 'python');
   if (!fs.existsSync(venvPy)) {
     console.error('[higgs] venv missing at', venvPy, '— run scripts/install.bat first');
+    dialog.showErrorBox(
+      'Rungano — Python environment missing',
+      `The server virtual environment was not found at:\n${venvPy}\n\nRun scripts\\install.bat once, then restart Rungano.`
+    );
     return;
   }
   console.log('[higgs] launching Flask proxy:', venvPy, 'server.py');
@@ -259,6 +263,9 @@ ipcMain.handle('higgs:write-file', async (_, filePath, content) => {
 ipcMain.handle('higgs:restart-servers', async () => {
   if (flaskProcess) flaskProcess.kill();
   if (sglangProcess) sglangProcess.kill();
+  // The .bat wrapper's kill doesn't propagate through wsl.exe — kill the
+  // WSL-side process directly or the restarted server hits a busy port.
+  try { execSync('wsl -d Ubuntu -- bash -c "pkill -f sgl-omni 2>/dev/null; echo done"', { timeout: 5000, windowsHide: true }); } catch {}
   await new Promise((r) => setTimeout(r, 2000));
   startSglangOmni();
   startFlaskProxy();
@@ -302,10 +309,9 @@ function createShortcutsIfFirstRun() {
 
 // ── App lifecycle ────────────────────────────────────────────────────
 app.whenReady().then(async () => {
-  // 1. Ensure output dirs exist
-  for (const d of [OUTPUT_DIR, path.join(OUTPUT_DIR, 'voices'), path.join(OUTPUT_DIR, 'history')]) {
-    if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
-  }
+  // 1. Ensure the output dir exists (date subdirs are created per synthesis;
+  //    voices live in /voices at repo root, not under output/)
+  if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
   // 2. Create tray (visible immediately, shows "checking…" until servers respond)
   createTray();
@@ -350,13 +356,11 @@ app.on('before-quit', () => {
   if (flaskProcess)  { try { flaskProcess.kill();  } catch {} }
   // Also kill the SGLang-Omni process inside WSL directly
   // (the .bat's cmd.exe kill may not propagate through wsl.exe)
-  const { execSync } = require('child_process');
   try { execSync('wsl -d Ubuntu -- bash -c "pkill -f sgl-omni 2>/dev/null; echo done"', { timeout: 3000, windowsHide: true }); } catch {}
 });
 
 app.on('will-quit', () => {
   if (sglangProcess) { try { sglangProcess.kill(); } catch {} }
   if (flaskProcess)  { try { flaskProcess.kill();  } catch {} }
-  const { execSync } = require('child_process');
   try { execSync('wsl -d Ubuntu -- bash -c "pkill -f sgl-omni 2>/dev/null"', { timeout: 2000, windowsHide: true }); } catch {}
 });

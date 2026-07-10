@@ -13,10 +13,10 @@ import { startHealthListening } from './health.js';
 import { initTheme, toggleTheme } from './theme.js';
 import { initDragDrop } from './dragdrop.js';
 import { loadVoices, updateVoiceCard, openCloneModal, closeCloneModal, saveClone } from './voices.js';
-import { renderSentenceList, downloadSentence } from './playlist.js';
-import { synthesise, cancelSynthesis, buildControlsPayload } from './synthesis.js';
+import { writeM3u } from './playlist.js';
+import { synthesise, cancelSynthesis } from './synthesis.js';
 import { loadRecentSessions, clearAllHistory } from './sessions.js';
-import { openSettingsModal, closeSettingsModal, saveSettings, resetSettings, updateSettingLabels } from './settings.js';
+import { openSettingsModal, saveSettings, resetSettings, updateSettingLabels, loadSettings } from './settings.js';
 
 // ── Info tooltip ──────────────────────────────────────────────────────
 function toggleTooltip() {
@@ -33,7 +33,8 @@ async function exportAllWav() {
   const done = state.sentences.filter(s => s.status === 'done');
   if (!done.length) { toast('No sentences to export.', true); return; }
   try {
-    const ids = done.map(s => s.file.split('/').pop().replace('.wav', ''));
+    const ids = done.map(s => s.id).filter(Boolean);
+    if (!ids.length) throw new Error('No entry ids in playlist');
     const res = await fetch(`${state.flaskUrl}/api/export/wav`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -55,38 +56,13 @@ async function saveM3u(openAfter = false) {
   const done = state.sentences.filter(s => s.status === 'done');
   if (!done.length) { toast('No sentences to save.', true); return; }
   try {
-    let outputDir = '';
-    try { const cfg = await window.higgs?.getConfig(); outputDir = cfg?.outputDir || ''; } catch {}
-    const lines = ['#EXTM3U'];
-    let m3uPath = '';
-    for (const s of done) {
-      const name = (s.text || `Sentence ${s.index + 1}`).slice(0, 60);
-      lines.push(`#EXTINF:${Math.ceil(s.elapsed_sec || 2)},${name}`);
-      const relPath = s.file.replace(/^\/audio\//, '');
-      if (outputDir) {
-        const abs = `${outputDir}\\${relPath}`.replace(/\//g, '\\');
-        lines.push(abs);
-        if (!m3uPath) m3uPath = `${outputDir}\\rungano-playlist.m3u`.replace(/\//g, '\\');
-      } else {
-        lines.push(`${state.flaskUrl}/audio/${relPath}`);
-      }
-    }
-    const content = lines.join('\n');
-
-    if (openAfter && m3uPath) {
-      // Write to output dir so VLC can find the file, then open it
-      await window.higgs?.writeFile(m3uPath, content);
-      window.higgs?.openFile(m3uPath);
-    } else {
-      // Browser download fallback
-      const blob = new Blob([content], { type: 'audio/x-mpegurl' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'rungano-playlist.m3u';
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
-      toast(`Saved .m3u with ${done.length} tracks.`);
-    }
+    const tracks = done.map(s => ({
+      file: s.file,
+      title: s.text || `Sentence ${s.index + 1}`,
+      seconds: s.elapsed_sec,
+    }));
+    const opened = await writeM3u(tracks, { open: openAfter });
+    if (!opened) toast(`Saved .m3u with ${done.length} tracks.`);
   } catch (e) { toast(`Save failed: ${e.message}`, true); }
 }
 async function playAllInVlc() { await saveM3u(true); }
@@ -101,6 +77,7 @@ async function init() {
 
   startHealthListening();
   initTheme();
+  loadSettings();
   initChips();
   loadVoices();
   loadRecentSessions();

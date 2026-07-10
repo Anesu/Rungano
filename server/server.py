@@ -118,7 +118,8 @@ def _resolve_references(references, voice_id: str | None):
 def _iter_synthesize_sentences(sentences: list[str], *, controls: dict,
                                 references, voice_id: str | None,
                                 temperature: float, top_k: int,
-                                top_p: float, volume: float) -> "Iterator[tuple[int, dict]]":
+                                top_p: float, volume: float,
+                                run_id: str | None = None) -> "Iterator[tuple[int, dict]]":
     """Shared synthesis iterator — canonical per-sentence pipeline.
 
     Yields (index, result_dict) for every sentence. On failure, result_dict
@@ -148,6 +149,7 @@ def _iter_synthesize_sentences(sentences: list[str], *, controls: dict,
             elapsed = time.time() - t_start
             result = {
                 "index": i,
+                "id": entry_id,
                 "text": sentence[:120] + ("..." if len(sentence) > 120 else ""),
                 "chars": len(sentence),
                 "file": f"/audio/{out_path.relative_to(OUTPUT_DIR).as_posix()}",
@@ -157,6 +159,7 @@ def _iter_synthesize_sentences(sentences: list[str], *, controls: dict,
             get_history().save(
                 entry_id=entry_id, text=sentence, voice_id=voice_id,
                 references=references, file_path=out_path, elapsed_sec=elapsed,
+                run_id=run_id,
             )
             yield i, result
             logger.info("  Sentence %d/%d: %d chars -> %.1fs, %d bytes",
@@ -249,7 +252,7 @@ def api_tts():
     controls = data.get("controls") or {}
 
     # Build tagged text from structured controls (canonical path — server owns prompt format)
-    text = _apply_controls(text, controls)
+    tagged_text = _apply_controls(text, controls)
 
     references = _resolve_references(references, voice_id)
 
@@ -258,12 +261,12 @@ def api_tts():
     try:
         t0 = time.time()
         tts = get_tts()
-        audio_bytes = tts.synthesize(text=text, references=references, temperature=temperature, top_k=top_k, top_p=top_p, max_new_tokens=max_new_tokens)
+        audio_bytes = tts.synthesize(text=tagged_text, references=references, temperature=temperature, top_k=top_k, top_p=top_p, max_new_tokens=max_new_tokens)
         audio_bytes = apply_gain(audio_bytes, gain=volume)
         audio_bytes = trim_silence(audio_bytes)
         out_path.write_bytes(audio_bytes)
         elapsed = time.time() - t0
-        get_history().save(entry_id=entry_id, text=text, voice_id=voice_id, references=references, file_path=out_path, elapsed_sec=elapsed)
+        get_history().save(entry_id=entry_id, text=text, voice_id=voice_id, references=references, file_path=out_path, elapsed_sec=elapsed, run_id=uuid.uuid4().hex[:8])
         return jsonify({"id": entry_id, "file": f"/audio/{out_path.relative_to(OUTPUT_DIR).as_posix()}", "elapsed_sec": round(elapsed, 2), "bytes": len(audio_bytes), "volume_applied": volume})
     except Exception as e:
         logger.exception("TTS failed")
@@ -295,7 +298,8 @@ def api_tts_batch():
 
     references = _resolve_references(references, voice_id)
     sentences = get_text_chunker().chunk(text)
-    logger.info("Batch TTS: %d sentences for %d chars", len(sentences), len(text))
+    run_id = uuid.uuid4().hex[:8]
+    logger.info("Batch TTS: %d sentences for %d chars (run %s)", len(sentences), len(text), run_id)
 
     t0 = time.time()
     results: list[dict] = []
@@ -304,7 +308,7 @@ def api_tts_batch():
     for _i, r in _iter_synthesize_sentences(
         sentences, controls=controls, references=references,
         voice_id=voice_id, temperature=temperature, top_k=top_k,
-        top_p=top_p, volume=volume,
+        top_p=top_p, volume=volume, run_id=run_id,
     ):
         if "error" in r:
             failed += 1
@@ -343,7 +347,8 @@ def api_tts_batch_stream():
     references = _resolve_references(references, voice_id)
     sentences = get_text_chunker().chunk(text)
     total = len(sentences)
-    logger.info("Streaming TTS: %d sentences for %d chars", total, len(text))
+    run_id = uuid.uuid4().hex[:8]
+    logger.info("Streaming TTS: %d sentences for %d chars (run %s)", total, len(text), run_id)
 
     def generate():
         t0 = time.time()
@@ -357,7 +362,7 @@ def api_tts_batch_stream():
             for _i, r in _iter_synthesize_sentences(
                 sentences, controls=controls, references=references,
                 voice_id=voice_id, temperature=temperature, top_k=top_k,
-                top_p=top_p, volume=volume,
+                top_p=top_p, volume=volume, run_id=run_id,
             ):
                 last_idx = _i
                 if "error" in r:

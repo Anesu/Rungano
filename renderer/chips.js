@@ -4,13 +4,17 @@
 import { state, els, LABELS } from './state.js';
 import { api } from './api.js';
 
+let _built = false;
+
 export async function initChips() {
+  if (_built) return; // rebuilding would wipe active chip selections
   try {
     const catalogue = await api('/api/controls');
     buildChipRow(els.emotionChips, catalogue.emotions, 'single');
     buildChipRow(els.styleChips, catalogue.styles, 'single');
     buildChipRow(els.prosodyChips, catalogue.prosody, 'multi-prosody');
     buildChipRow(els.sfxChips, catalogue.sfx, 'multi-sfx');
+    _built = true;
   } catch (e) {
     console.warn('Controls catalogue not available:', e.message);
   }
