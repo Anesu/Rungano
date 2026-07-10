@@ -7,7 +7,8 @@
 - **Voice clone / reference** — a short audio clip + transcript that conditions the model's voice
 - **Control token** — an inline `<|category:value|>` tag that the model interprets as a directive
 - **Preset voice** — a built-in/default voice; may point to a bundled reference audio on disk
-- **Custom voice** — user-uploaded reference audio stored under `output/voices/custom/`
+- **Custom voice** — user-uploaded reference audio stored under `voices/<language>/<name>/`
+- **Session / run** — one 'Synthesise' click; every sentence it produces shares a `run_id` in its history metadata
 
 ## Architecture
 
@@ -18,7 +19,7 @@ Three deep modules in the Python server, mirroring the Koko pattern:
 
 Four supporting modules with real seams:
 4. **TextChunker (`higgs/text.py`)** — sentence segmentation via spaCy (regex fallback). Interface: `chunk(text) → list[str]`.
-5. **HistoryStore (`higgs/history.py`)** — CRUD over date-organized output directories. Owns the `output/YYYY-MM-DD/HHMMSS-id.{wav,json}` path scheme. Public path methods (`resolve_path`, `make_output_path`) so callers never walk the filesystem directly.
+5. **HistoryStore (`higgs/history.py`)** — CRUD over date-organized output directories. Owns the `output/YYYY-MM-DD/HHMMSS-id.{wav,json}` path scheme. Public path methods (`resolve_path`, `make_output_path`) so callers never walk the filesystem directly. Sessions group by `run_id` (one per synthesis request), with a minute-prefix fallback for legacy entries.
 6. **SystemInfo (`higgs/system.py`)** — stateless GPU query + WSL path translation.
 7. **Audio (`higgs/audio.py`)** — WAV post-processing: gain, silence, concatenation, silence trimming.
 
@@ -36,14 +37,25 @@ Renderer is split into ES modules with one concern per file:
 - `state.js` — shared state, DOM refs, label mappings
 - `synthesis.js` — SSE streaming engine + progress (deepest renderer module)
 - `chips.js` — control-token chip UI (fetches catalogue, builds dynamically)
-- `playlist.js` — sentence DOM rendering, click-to-play, download
+- `playlist.js` — sentence DOM rendering, click-to-play, download, shared `writeM3u` (the one place .m3u files are built)
 - `voices.js` — voice dropdown + clone modal + upload flow
-- `sessions.js` — recent-history cards + export
+- `sessions.js` — recent-history cards: play (.m3u in system player), export, folder
 - `settings.js` — model parameters modal + localStorage persistence
 - `health.js` — IPC-driven traffic-light status
 - `theme.js` — light/dark toggle with system detection
 - `api.js` / `toast.js` / `dragdrop.js` — small shared utilities
 - `app.js` — thin orchestrator: imports modules, wires DOM events (~150 lines)
+
+## Paths (dev vs packaged)
+Electron `main.js` resolves three roots that coincide in a dev checkout and diverge when packaged:
+- **APP_ROOT** — bundled app code (`app.asar`): `renderer/`
+- **RES_ROOT** — real on-disk files (`process.resourcesPath`): `server/`, `scripts/`
+- **DATA_ROOT** — user-writable data: `output/`, `voices/` (`Documents\Rungano` when packaged)
+
+The Flask server receives `HIGGS_OUTPUT_DIR` and `HIGGS_VOICES_DIR` from Electron; its own defaults (repo-relative) only apply when run standalone.
+
+## Testing
+`npm test` runs the pytest suite in `server/tests/` (50 tests): pure-module coverage (audio, text, history, voices, core) plus Flask endpoint tests against a `FakeTTS`. No GPU or SGLang needed. Dev deps: `server/requirements-dev.txt`.
 
 ## Design Principles Applied
 - **Deep modules earn their keep** — `core.py` hides SGLang-Omni entirely from the renderer
