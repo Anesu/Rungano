@@ -1,8 +1,8 @@
-# Higgs TTS — Windows PowerShell shortcut creator
+# Rungano — Windows PowerShell shortcut creator
 #
 # Creates:
-#   - Desktop shortcut "Higgs TTS.lnk" pointing at scripts\launch-higgs.vbs
-#   - Start Menu shortcut under "Higgs TTS\Higgs TTS.lnk"
+#   - Desktop shortcut "Rungano.lnk" pointing at scripts\launch-higgs.vbs
+#   - Start Menu shortcut under "Rungano\Rungano.lnk"
 #
 # Both shortcuts use the project's icon.ico.
 #

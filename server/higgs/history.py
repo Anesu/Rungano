@@ -96,6 +96,32 @@ class HistoryStore:
                 return True
         return False
 
+    def resolve_path(self, entry_id: str) -> Path | None:
+        """Return the WAV file path for an entry ID, or None if not found.
+
+        Walks date directories (same pattern as delete) so callers never
+        need to know the output/YYYY-MM-DD/HHMMSS-id.wav scheme.
+        """
+        for date_dir in self.output_dir.iterdir():
+            if not date_dir.is_dir():
+                continue
+            for f in date_dir.glob(f"*-{entry_id}.wav"):
+                return f
+        return None
+
+    def make_output_path(self, entry_id: str) -> Path:
+        """Build a date-stamped output path: output/YYYY-MM-DD/HHMMSS-<id>.wav.
+
+        Canonical path — this is the single source of truth for the output
+        filename scheme. Server.py delegates to this instead of duplicating
+        the time.strftime pattern.
+        """
+        today = self._today()
+        prefix = self._entry_prefix(entry_id)
+        d = self.output_dir / today
+        d.mkdir(parents=True, exist_ok=True)
+        return d / f"{prefix}.wav"
+
     def list_sessions(self) -> list[dict]:
         """Group entries by synthesis session (date folder + 4-char time prefix).
         

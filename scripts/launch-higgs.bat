@@ -27,7 +27,7 @@ if not exist "electron\assets\icon.ico" (
 
 echo.
 echo   ========================================
-echo     Higgs TTS — launching
+echo     Rungano — launching
 echo   ========================================
 echo.
 

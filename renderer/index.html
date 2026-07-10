@@ -25,10 +25,10 @@
       <button class="icon-btn" id="btn-info" title="Help &amp; Info">ℹ</button>
     </header>
 
-    <!-- ═══ Main 2-column ════════════════════════════════════════════ -->
+    <!-- ═══ Main 3-column ════════════════════════════════════════════ -->
     <main class="main">
 
-      <!-- LEFT: Text Input -->
+      <!-- COL 1: Text Input -->
       <section class="panel panel-input">
         <div class="input-label-row">
           <label class="field-label" for="text-input">Text to synthesise</label>
@@ -52,58 +52,54 @@
         </div>
       </section>
 
-      <!-- RIGHT: Playlist + Voice & Effects -->
-      <section class="panel panel-output">
+      <!-- COL 2: Playlist + Recent Sessions -->
+      <section class="panel panel-playlist">
 
-        <!-- ═══ Playlist (top) ══════════════════════════════════════ -->
-        <div class="output-section output-section-playlist">
+        <!-- Recent sessions -->
+        <div class="section-head">
+          <span class="field-label">Recent</span>
+          <button class="btn-ghost-sm" id="btn-clear-history">Clear</button>
+        </div>
+        <div class="session-cards" id="session-cards"></div>
 
-          <!-- Recent sessions -->
-          <div class="section-head">
-            <span class="field-label">Recent</span>
-            <button class="btn-ghost-sm" id="btn-clear-history">Clear</button>
-          </div>
-          <div class="session-cards" id="session-cards"></div>
+        <!-- Playlist -->
+        <span class="field-label">Playlist</span>
 
-          <!-- Playlist -->
-          <span class="field-label">Playlist</span>
-
-          <!-- Floating action bubble -->
-          <div class="action-bubble" id="action-bubble" hidden>
-            <button class="btn btn-sm" id="btn-play-all" title="Open in VLC">▶</button>
-            <button class="btn btn-sm" id="btn-export-wav" title="Export WAV">⬇</button>
-            <button class="btn btn-sm" id="btn-save-m3u" title="Save .m3u">📋</button>
-            <button class="btn btn-sm" id="btn-output" title="Open folder">📁</button>
-          </div>
-
-          <!-- Sentence list -->
-          <ul class="sentence-list" id="sentence-list"></ul>
+        <!-- Floating action bubble -->
+        <div class="action-bubble" id="action-bubble" hidden>
+          <button class="btn btn-sm" id="btn-play-all" title="Open in VLC">▶</button>
+          <button class="btn btn-sm" id="btn-export-wav" title="Export WAV">⬇</button>
+          <button class="btn btn-sm" id="btn-save-m3u" title="Save .m3u">📋</button>
+          <button class="btn btn-sm" id="btn-output" title="Open folder">📁</button>
         </div>
 
-        <!-- ═══ Voice & Effects (bottom) ════════════════════════════ -->
-        <div class="output-section">
-          <div class="section-divider"></div>
+        <!-- Sentence list -->
+        <ul class="sentence-list" id="sentence-list"></ul>
+      </section>
 
-          <!-- Effects -->
-          <details class="effects-group" id="eg-emotion">
-            <summary>Emotion <span class="chip-count" id="emotion-count"></span></summary>
-            <div class="chip-grid" id="emotion-chips" data-category="emotion"></div>
-          </details>
-          <details class="effects-group" id="eg-style">
-            <summary>Style <span class="chip-count" id="style-count"></span></summary>
-            <div class="chip-row" id="style-chips" data-category="style"></div>
-          </details>
-          <details class="effects-group" id="eg-prosody">
-            <summary>Prosody <span class="chip-count" id="prosody-count"></span></summary>
-            <div class="chip-row" id="prosody-chips" data-category="prosody"></div>
-          </details>
-          <details class="effects-group" id="eg-sfx">
-            <summary>Sound Effects <span class="chip-count" id="sfx-count"></span></summary>
-            <div class="chip-row" id="sfx-chips" data-category="sfx"></div>
-          </details>
+      <!-- COL 3: Voice & Effects -->
+      <section class="panel panel-controls">
 
-          <div class="settings-summary" id="settings-summary">No effects selected</div>
-        </div>
+        <!-- Effects chips -->
+        <span class="field-label">Effects</span>
+        <details class="effects-group" id="eg-emotion">
+          <summary>Emotion <span class="chip-count" id="emotion-count"></span></summary>
+          <div class="chip-grid" id="emotion-chips" data-category="emotion"></div>
+        </details>
+        <details class="effects-group" id="eg-style">
+          <summary>Style <span class="chip-count" id="style-count"></span></summary>
+          <div class="chip-row" id="style-chips" data-category="style"></div>
+        </details>
+        <details class="effects-group" id="eg-prosody">
+          <summary>Prosody <span class="chip-count" id="prosody-count"></span></summary>
+          <div class="chip-row" id="prosody-chips" data-category="prosody"></div>
+        </details>
+        <details class="effects-group" id="eg-sfx">
+          <summary>Sound Effects <span class="chip-count" id="sfx-count"></span></summary>
+          <div class="chip-row" id="sfx-chips" data-category="sfx"></div>
+        </details>
+
+        <div class="settings-summary" id="settings-summary">No effects selected</div>
       </section>
     </main>
 

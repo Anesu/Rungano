@@ -1,7 +1,7 @@
 # Rungano — Desktop Shell for Higgs Audio v3 TTS
 
 ## Domain Language
-- **Higgs TTS** — the desktop application described in this repo
+- **Rungano** — the desktop application described in this repo
 - **Higgs Audio v3** — the 4B-parameter TTS model from Boson AI
 - **SGLang-Omni** — the inference server (multi-stage omni-model serving)
 - **Voice clone / reference** — a short audio clip + transcript that conditions the model's voice
@@ -16,7 +16,13 @@ Three deep modules in the Python server, mirroring the Koko pattern:
 2. **VoiceCatalog (`higgs/voices.py`)** — single seam for voice resolution. Presets + custom uploads. Validation lives here; callers never touch the filesystem.
 3. **Config (`higgs/config.py`)** — immutable `HiggsConfig` dataclass. Single source of truth for sglang_url, request_timeout, preset_voices. Frozen.
 
-Flask layer is a thin adapter — endpoints map cleanly to the model operations.
+Four supporting modules with real seams:
+4. **TextChunker (`higgs/text.py`)** — sentence segmentation via spaCy (regex fallback). Interface: `chunk(text) → list[str]`.
+5. **HistoryStore (`higgs/history.py`)** — CRUD over date-organized output directories. Owns the `output/YYYY-MM-DD/HHMMSS-id.{wav,json}` path scheme. Public path methods (`resolve_path`, `make_output_path`) so callers never walk the filesystem directly.
+6. **SystemInfo (`higgs/system.py`)** — stateless GPU query + WSL path translation.
+7. **Audio (`higgs/audio.py`)** — WAV post-processing: gain, silence, concatenation, silence trimming.
+
+Flask layer is a thin adapter — endpoints map cleanly to the model operations. Shared synthesis pipeline (`_iter_synthesize_sentences`) eliminates duplication between batch and streaming endpoints.
 
 Electron main process orchestrates:
 - Window lifecycle (close → hide-to-tray)
@@ -24,13 +30,26 @@ Electron main process orchestrates:
 - Subprocess control (SGLang-Omni + Flask proxy)
 - Single-instance lock
 - First-run shortcut creation
-- Health polling (10s interval)
+- Health polling (10s interval) → pushes to renderer via IPC (single source, two consumers: tray + UI)
+
+Renderer is split into ES modules with one concern per file:
+- `state.js` — shared state, DOM refs, label mappings
+- `synthesis.js` — SSE streaming engine + progress (deepest renderer module)
+- `chips.js` — control-token chip UI (fetches catalogue, builds dynamically)
+- `playlist.js` — sentence DOM rendering, click-to-play, download
+- `voices.js` — voice dropdown + clone modal + upload flow
+- `sessions.js` — recent-history cards + export
+- `settings.js` — model parameters modal + localStorage persistence
+- `health.js` — IPC-driven traffic-light status
+- `theme.js` — light/dark toggle with system detection
+- `api.js` / `toast.js` / `dragdrop.js` — small shared utilities
+- `app.js` — thin orchestrator: imports modules, wires DOM events (~150 lines)
 
 ## Design Principles Applied
 - **Deep modules earn their keep** — `core.py` hides SGLang-Omni entirely from the renderer
 - **Real seams** — Flask is the only Python entry point; renderer talks to it via fetch
 - **One place for each concept** — voice resolution lives only in `VoiceCatalog`
-- **Stable interface** — `HiggsTTS.synthesize()` / `stream_synthesize()` are the only API surface
+- **Stable interface** — `HiggsTTS.synthesize()` is the only API surface
 - **Configuration concentrated** — `config` is the single source of truth
 
 ## Anti-Goals

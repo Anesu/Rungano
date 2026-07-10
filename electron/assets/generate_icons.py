@@ -1,5 +1,5 @@
 """
-Generate Higgs TTS icons.
+Generate Rungano icons.
 
 Outputs:
   - electron/assets/icon.ico       (multi-resolution: 16, 32, 48, 64, 128, 256)

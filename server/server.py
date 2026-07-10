@@ -1,5 +1,5 @@
 """
-Higgs TTS — Flask proxy server.
+Rungano — Flask proxy server.
 
 Sits between the Electron renderer and SGLang-Omni. Provides:
   GET  /api/health              — readiness + GPU VRAM
@@ -10,6 +10,7 @@ Sits between the Electron renderer and SGLang-Omni. Provides:
   DELETE /api/voices/custom/<id>— remove a custom voice
   POST /api/tts                 — synthesise (single chunk, volume boost)
   POST /api/tts/batch           — synthesise (sentence-by-sentence, controls applied per utterance)
+  POST /api/tts/batch/stream    — synthesise (streaming SSE, progressive delivery)
   GET  /api/history             — list past generations
   DELETE /api/history/<id>      — delete a history entry
   POST /v1/audio/speech         — OpenAI-compatible passthrough
@@ -91,12 +92,8 @@ def get_history() -> HistoryStore:
 # ── Shared helpers (used by both TTS endpoints) ──────────
 
 def _make_output_path(entry_id: str) -> Path:
-    """Build a date-stamped output path: output/YYYY-MM-DD/HHMMSS-<id>.wav"""
-    today = time.strftime("%Y-%m-%d")
-    prefix = f"{time.strftime('%H%M%S')}-{entry_id}"
-    d = OUTPUT_DIR / today
-    d.mkdir(parents=True, exist_ok=True)
-    return d / f"{prefix}.wav"
+    """Build a date-stamped output path. Delegates to HistoryStore — canonical source."""
+    return get_history().make_output_path(entry_id)
 
 def _apply_controls(text: str, controls: dict) -> str:
     """Build control-tagged text from a structured controls dict.
@@ -118,6 +115,56 @@ def _resolve_references(references, voice_id: str | None):
                  "text": voice.get("transcript", "")}]
     return references
 
+def _iter_synthesize_sentences(sentences: list[str], *, controls: dict,
+                                references, voice_id: str | None,
+                                temperature: float, top_k: int,
+                                top_p: float, volume: float) -> "Iterator[tuple[int, dict]]":
+    """Shared synthesis iterator — canonical per-sentence pipeline.
+
+    Yields (index, result_dict) for every sentence. On failure, result_dict
+    contains ``{"error": str}`` so callers can distinguish success from failure
+    without needing their own try/except. File I/O and history persistence are
+    handled here — callers only format the transport (JSON or SSE).
+
+    Both /api/tts/batch and /api/tts/batch/stream iterate over this generator.
+    """
+    tts = get_tts()
+    for i, sentence in enumerate(sentences):
+        tagged = _apply_controls(sentence, controls)
+        entry_id = uuid.uuid4().hex[:12]
+        out_path = _make_output_path(entry_id)
+        try:
+            t_start = time.time()
+            raw = tts.synthesize(
+                text=tagged,
+                references=references,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+                max_new_tokens=2048,  # single sentence — 40s is more than enough
+            )
+            boosted = apply_gain(raw, gain=volume)
+            out_path.write_bytes(boosted)
+            elapsed = time.time() - t_start
+            result = {
+                "index": i,
+                "text": sentence[:120] + ("..." if len(sentence) > 120 else ""),
+                "chars": len(sentence),
+                "file": f"/audio/{out_path.relative_to(OUTPUT_DIR).as_posix()}",
+                "elapsed_sec": round(elapsed, 2),
+                "bytes": len(boosted),
+            }
+            get_history().save(
+                entry_id=entry_id, text=sentence, voice_id=voice_id,
+                references=references, file_path=out_path, elapsed_sec=elapsed,
+            )
+            yield i, result
+            logger.info("  Sentence %d/%d: %d chars -> %.1fs, %d bytes",
+                        i + 1, len(sentences), len(sentence), elapsed, len(boosted))
+        except Exception as e:
+            logger.error("Sentence %d failed: %s", i + 1, e)
+            yield i, {"error": str(e)}
+
 # ── Health ───────────────────────────────────────────────
 @app.route("/api/health", methods=["GET"])
 def api_health():
@@ -129,8 +176,8 @@ def api_health():
             payload = r.json()
             sglang_models = [m.get("id", "?") for m in payload.get("data", [])]
             sglang_ok = True
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("SGLang health check failed: %s", e)
     return jsonify({
         "flask_ready": True,
         "sglang_ready": sglang_ok,
@@ -242,53 +289,27 @@ def api_tts_batch():
     references = data.get("references")
     temperature = float(data.get("temperature", 0.8))
     top_k = int(data.get("top_k", 50))
+    top_p = float(data.get("top_p", 0.9))
     volume = float(data.get("volume", 1.8))
     controls = data.get("controls") or {}
 
     references = _resolve_references(references, voice_id)
-
-    # Split into individual sentences using spaCy (with regex fallback).
     sentences = get_text_chunker().chunk(text)
     logger.info("Batch TTS: %d sentences for %d chars", len(sentences), len(text))
 
     t0 = time.time()
-    tts = get_tts()
     results: list[dict] = []
     failed = 0
 
-    for i, sentence in enumerate(sentences):
-        # Apply controls per-sentence so every utterance gets emotion/style/prosody/sfx.
-        tagged = _apply_controls(sentence, controls)
-
-        entry_id = uuid.uuid4().hex[:12]
-        out_path = _make_output_path(entry_id)
-        try:
-            t_start = time.time()
-            raw = tts.synthesize(
-                text=tagged,
-                references=references,
-                temperature=temperature,
-                top_k=top_k,
-                top_p=top_p,
-                max_new_tokens=2048,  # single sentence — 40s is more than enough
-            )
-            boosted = apply_gain(raw, gain=volume)
-            out_path.write_bytes(boosted)
-            elapsed = time.time() - t_start
-            results.append({
-                "index": i,
-                "text": sentence[:120] + ("..." if len(sentence) > 120 else ""),
-                "chars": len(sentence),
-                "file": f"/audio/{out_path.relative_to(OUTPUT_DIR).as_posix()}",
-                "elapsed_sec": round(elapsed, 2),
-                "bytes": len(boosted),
-            })
-            get_history().save(entry_id=entry_id, text=sentence, voice_id=voice_id, references=references, file_path=out_path, elapsed_sec=elapsed)
-            logger.info("  Sentence %d/%d: %d chars -> %.1fs, %d bytes", i + 1, len(sentences), len(sentence), elapsed, len(boosted))
-        except Exception as e:
-            logger.error("Sentence %d failed: %s", i + 1, e)
+    for _i, r in _iter_synthesize_sentences(
+        sentences, controls=controls, references=references,
+        voice_id=voice_id, temperature=temperature, top_k=top_k,
+        top_p=top_p, volume=volume,
+    ):
+        if "error" in r:
             failed += 1
-            continue
+        else:
+            results.append(r)
 
     total_elapsed = time.time() - t0
     return jsonify({
@@ -315,6 +336,7 @@ def api_tts_batch_stream():
     references = data.get("references")
     temperature = float(data.get("temperature", 0.8))
     top_k = int(data.get("top_k", 50))
+    top_p = float(data.get("top_p", 0.9))
     volume = float(data.get("volume", 1.8))
     controls = data.get("controls") or {}
 
@@ -325,53 +347,28 @@ def api_tts_batch_stream():
 
     def generate():
         t0 = time.time()
-        tts = get_tts()
         failed = 0
+        last_idx = -1
 
         # Initial event: total sentence count so the client can pre-allocate the playlist
         yield f"data: {json.dumps({'type': 'start', 'total': total})}\n\n"
 
-        for i, sentence in enumerate(sentences):
-            tagged = _apply_controls(sentence, controls)
-            entry_id = uuid.uuid4().hex[:12]
-            out_path = _make_output_path(entry_id)
-            try:
-                t_start = time.time()
-                raw = tts.synthesize(
-                    text=tagged,
-                    references=references,
-                    temperature=temperature,
-                    top_k=top_k,
-                    max_new_tokens=2048,
-                )
-                boosted = apply_gain(raw, gain=volume)
-                out_path.write_bytes(boosted)
-                elapsed = time.time() - t_start
-
-                get_history().save(
-                    entry_id=entry_id, text=sentence, voice_id=voice_id,
-                    references=references, file_path=out_path, elapsed_sec=elapsed,
-                )
-
-                event = {
-                    "type": "sentence",
-                    "index": i,
-                    "text": sentence[:120] + ("..." if len(sentence) > 120 else ""),
-                    "chars": len(sentence),
-                    "file": f"/audio/{out_path.relative_to(OUTPUT_DIR).as_posix()}",
-                    "elapsed_sec": round(elapsed, 2),
-                    "bytes": len(boosted),
-                }
-                yield f"data: {json.dumps(event)}\n\n"
-                logger.info("  Stream %d/%d: %d chars -> %.1fs", i + 1, total, len(sentence), elapsed)
-
-            except GeneratorExit:
-                logger.info("Streaming TTS cancelled by client at sentence %d/%d", i + 1, total)
-                return
-            except Exception as e:
-                logger.error("Sentence %d failed: %s", i + 1, e)
-                failed += 1
-                yield f"data: {json.dumps({'type': 'error', 'index': i, 'error': str(e)})}\n\n"
+        try:
+            for _i, r in _iter_synthesize_sentences(
+                sentences, controls=controls, references=references,
+                voice_id=voice_id, temperature=temperature, top_k=top_k,
+                top_p=top_p, volume=volume,
+            ):
+                last_idx = _i
+                if "error" in r:
+                    failed += 1
+                    yield f"data: {json.dumps({'type': 'error', 'index': _i, 'error': r['error']})}\n\n"
+                else:
+                    yield f"data: {json.dumps({'type': 'sentence', **r})}\n\n"
+        except GeneratorExit:
+            logger.info("Streaming TTS cancelled by client at sentence %d/%d",
+                        last_idx + 1, total)
+            return
 
         total_elapsed = time.time() - t0
         yield f"data: {json.dumps({'type': 'done', 'total': total, 'failed': failed, 'elapsed_sec': round(total_elapsed, 2)})}\n\n"
@@ -430,12 +427,9 @@ def api_export_wav():
         return jsonify({"error": "Field 'ids' is required"}), 400
     wavs = []
     for eid in ids:
-        # Search all date directories for the WAV file
-        for date_dir in OUTPUT_DIR.iterdir():
-            if not date_dir.is_dir(): continue
-            for f in date_dir.glob(f"*-{eid}.wav"):
-                wavs.append(f.read_bytes())
-                break
+        path = get_history().resolve_path(eid)
+        if path:
+            wavs.append(path.read_bytes())
     if not wavs:
         return jsonify({"error": "No audio files found for the given ids"}), 404
     merged = concat_wavs(wavs, crossfade_ms=0, gap_ms=300)
@@ -443,55 +437,6 @@ def api_export_wav():
                     headers={"Content-Disposition": "attachment; filename=rungano-export.wav"})
 
 # ── Entrypoint ───────────────────────────────────────────
-def _migrate_legacy():
-    """One-time migration: move old output/history/ → output/<YYYY-MM-DD>/
-    and output/voices/ → voices/<lang>/<name>/"""
-    legacy_history = OUTPUT_DIR / "history"
-    legacy_voices = OUTPUT_DIR / "voices"
-    marker = OUTPUT_DIR / ".migrated-v2"
-    if marker.exists():
-        return
-    logger.info("Running v2 migration...")
-    # Migrate history
-    if legacy_history.exists():
-        migrated = 0
-        for f in legacy_history.iterdir():
-            if not f.is_file(): continue
-            try:
-                mtime = time.strftime("%Y-%m-%d", time.localtime(f.stat().st_mtime))
-                dest = OUTPUT_DIR / mtime
-                dest.mkdir(parents=True, exist_ok=True)
-                prefix = time.strftime("%H%M%S", time.localtime(f.stat().st_mtime))
-                new_name = f"{prefix}-{f.name}"
-                shutil.copy2(str(f), str(dest / new_name))  # copy then unlink, safer on Windows
-                f.unlink()
-                migrated += 1
-            except Exception as exc:
-                logger.warning("  Skipping %s: %s", f.name, exc)
-        try:
-            legacy_history.rmdir()  # only removes if empty
-        except Exception:
-            pass
-        logger.info("  Migrated %d history files → date directories", migrated)
-    # Migrate voices
-    if legacy_voices.exists():
-        moved = 0
-        for item in legacy_voices.iterdir():
-            try:
-                dest = VOICES_DIR / item.name
-                if not dest.exists():
-                    shutil.move(str(item), str(dest))
-                    moved += 1
-            except Exception as exc:
-                logger.warning("  Skipping voices/%s: %s", item.name, exc)
-        try:
-            legacy_voices.rmdir()
-        except Exception:
-            pass
-        logger.info("  Moved %d voice directories → voices/", moved)
-    marker.touch()
-    logger.info("Migration complete.")
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=7861)
@@ -500,8 +445,7 @@ def main():
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
     os.environ["SGLANG_URL"] = args.sglang_url
-    _migrate_legacy()
-    logger.info("Higgs TTS Flask proxy on http://%s:%d  (sglang: %s)", args.host, args.port, args.sglang_url)
+    logger.info("Rungano Flask proxy on http://%s:%d  (sglang: %s)", args.host, args.port, args.sglang_url)
     app.run(host=args.host, port=args.port, debug=args.debug, threaded=True, use_reloader=False)
 
 if __name__ == "__main__":

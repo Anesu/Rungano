@@ -1,5 +1,5 @@
 /**
- * Higgs TTS — Electron main process
+ * Rungano — Electron main process
  *
  * Responsibilities:
  *   1. Create the BrowserWindow (the "native" app window).
@@ -71,7 +71,7 @@ function createWindow() {
     height: 820,
     minWidth: 960,
     minHeight: 640,
-    title: 'Higgs TTS',
+    title: 'Rungano',
     icon: fs.existsSync(ICON_PATH) ? ICON_PATH : undefined,
     backgroundColor: '#0d1117',
     show: false, // wait for ready-to-show
@@ -117,9 +117,9 @@ function createTray() {
   }
 
   tray = new Tray(trayIcon.isEmpty() ? nativeImage.createFromDataURL(buildFallbackPng()) : trayIcon);
-  tray.setToolTip('Higgs TTS');
+  tray.setToolTip('Rungano');
   const ctx = Menu.buildFromTemplate([
-    { label: 'Show Higgs TTS', click: () => { if (mainWindow) { mainWindow.show(); mainWindow.focus(); } else { createWindow(); } } },
+    { label: 'Show Rungano', click: () => { if (mainWindow) { mainWindow.show(); mainWindow.focus(); } else { createWindow(); } } },
     { label: 'Open output folder', click: () => { shell.openPath(OUTPUT_DIR); } },
     { type: 'separator' },
     { label: 'Server status', enabled: false },
@@ -250,6 +250,12 @@ ipcMain.handle('higgs:open-output', async () => {
   return shell.openPath(OUTPUT_DIR);
 });
 ipcMain.handle('higgs:open-file', async (_, filePath) => shell.openPath(filePath));
+ipcMain.handle('higgs:write-file', async (_, filePath, content) => {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(filePath, content, 'utf-8');
+  return { ok: true, path: filePath };
+});
 ipcMain.handle('higgs:restart-servers', async () => {
   if (flaskProcess) flaskProcess.kill();
   if (sglangProcess) sglangProcess.kill();

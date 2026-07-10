@@ -19,7 +19,12 @@ out/
 *.log
 npm-debug.log*
 
-# Runtime state
+# Runtime state (generated audio + session data — never tracked, incl. dated subdirs)
+output/**/*.wav
+output/**/*.mp3
+output/**/*.ogg
+output/**/*.json
+output/.migrated-v2
 output/*.wav
 output/*.mp3
 output/*.ogg

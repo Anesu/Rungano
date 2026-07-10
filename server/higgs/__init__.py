@@ -1,1 +1,1 @@
-# Higgs TTS — Python server package
+# Rungano — Python server package

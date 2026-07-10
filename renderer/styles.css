@@ -117,21 +117,22 @@ input, textarea { user-select: text; }
 }
 .icon-btn:hover { background: var(--bg-2); border-color: var(--border); color: var(--text-0); }
 
-/* ═══ 2-Column Grid ══════════════════════════════════════════════════ */
+/* ═══ 3-Column Grid ══════════════════════════════════════════════════ */
 .main {
   display: grid;
-  grid-template-columns: 1fr 380px;
+  grid-template-columns: 1fr 1fr 320px;
   gap: 10px; padding: 10px;
   flex: 1; min-height: 0; overflow: hidden;
 }
-@media (max-width: 800px) { .main { grid-template-columns: 1fr; } .panel-output { display: none; } }
+@media (max-width: 900px) { .main { grid-template-columns: 1fr; } .panel-playlist, .panel-controls { display: none; } }
 .panel {
   background: var(--bg-1); border: 1px solid var(--border);
   border-radius: var(--radius-lg); padding: 14px;
   display: flex; flex-direction: column; min-height: 0; overflow: hidden;
   box-shadow: var(--shadow-sm);
 }
-.panel-output { overflow-y: auto; }
+.panel-playlist { overflow-y: auto; }
+.panel-controls { overflow-y: auto; }
 .field-label {
   display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 1.2px;
   color: var(--text-2); margin-bottom: 4px; font-weight: 600;
@@ -228,15 +229,6 @@ input, textarea { user-select: text; }
   transition: all var(--transition);
 }
 .session-actions button:hover { border-color: var(--accent); color: var(--accent); }
-
-/* ═══ Output Sections ═══════════════════════════════════════════════ */
-.output-section { flex-shrink: 0; }
-.output-section-playlist {
-  margin-top: 6px; padding-top: 6px;
-  border-top: 2px solid var(--border);
-  flex: 1; display: flex; flex-direction: column; min-height: 0;
-}
-.section-divider { height: 1px; background: var(--border); margin: 0 0 10px 0; }
 
 /* ═══ Effects ═══════════════════════════════════════════════════════ */
 .effects-group {

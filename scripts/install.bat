@@ -1,6 +1,6 @@
 @echo off
 REM ─────────────────────────────────────────────────────────────────────
-REM  Higgs TTS — Windows host installer.
+REM  Rungano — Windows host installer.
 REM
 REM  This handles the Windows-side of the install:
 REM    1. Verify Python 3.10+ is on PATH
@@ -16,7 +16,7 @@ cd /d "%~dp0\.."
 
 echo.
 echo   ========================================
-echo     Higgs TTS — Installer
+echo     Rungano — Installer
 echo   ========================================
 echo.
 
@@ -98,7 +98,7 @@ if errorlevel 1 (
 :finish
 echo.
 echo   ========================================
-echo     Higgs TTS — Install complete
+echo     Rungano — Install complete
 echo   ========================================
 echo.
 echo Run the app:  scripts\launch-higgs.bat

@@ -13,11 +13,9 @@ through this module. That gives us a single place to:
 """
 from __future__ import annotations
 
-import base64
 import json
 import logging
-import re
-from typing import Any, Iterator
+from typing import Any
 
 import requests
 
@@ -113,40 +111,3 @@ class HiggsTTS:
         r = self._session.post(url, json=payload, timeout=self.timeout)
         r.raise_for_status()
         return r.content
-
-    def stream_synthesize(self, *,
-                          text: str,
-                          references: list[dict] | None = None,
-                          temperature: float = 0.8,
-                          top_k: int = 50,
-                          max_new_tokens: int = 1024) -> Iterator[bytes]:
-        """
-        Streaming. Yields successive raw PCM/WAV chunks (the bytes inside each
-        SSE `data: {"audio_b64": "..."}` event). Caller reassembles / plays.
-        """
-        payload: dict[str, Any] = {
-            "input": text,
-            "temperature": temperature,
-            "top_k": top_k,
-            "max_new_tokens": max_new_tokens,
-            "stream": True,
-        }
-        if references:
-            payload["references"] = references
-        url = f"{self.sglang_url}/v1/audio/speech"
-        logger.info("Streaming %d chars (refs=%d) → %s", len(text), len(references or []), url)
-        with self._session.post(url, json=payload, timeout=self.timeout, stream=True) as r:
-            r.raise_for_status()
-            for line in r.iter_lines(decode_unicode=True):
-                if not line or not line.startswith("data:"):
-                    continue
-                raw = line[len("data:"):].strip()
-                if not raw or raw == "[DONE]":
-                    continue
-                try:
-                    obj = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
-                chunk_b64 = obj.get("audio_b64") or obj.get("data") or obj.get("audio")
-                if chunk_b64:
-                    yield base64.b64decode(chunk_b64)

@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('higgs', {
   // OS integration
   openOutput: () => ipcRenderer.invoke('higgs:open-output'),
   openFile: (path) => ipcRenderer.invoke('higgs:open-file', path),
+  writeFile: (path, content) => ipcRenderer.invoke('higgs:write-file', path, content),
   showError: (title, body) => ipcRenderer.invoke('higgs:show-error', title, body),
   restartServers: () => ipcRenderer.invoke('higgs:restart-servers'),
 

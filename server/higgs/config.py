@@ -1,5 +1,5 @@
 """
-Higgs TTS — immutable configuration.
+Rungano — immutable configuration.
 
 Single source of truth for runtime knobs. Deep module: small surface, no behaviour.
 """
